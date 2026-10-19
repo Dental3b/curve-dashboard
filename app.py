@@ -181,7 +181,16 @@ except Exception as e:
     st.stop()
 
 clinic_name = clinics[0].get("name", "Practice") if clinics else "Practice"
-st.title(f"{clinic_name}")
+
+# Header with logo
+col_logo, col_title = st.columns([1, 5])
+with col_logo:
+    try:
+        st.image("logo.jpg", width=120)
+    except Exception:
+        pass
+with col_title:
+    st.title(clinic_name)
 
 # Labels for comparison (defined early)
 prev_label = prev_month_start.strftime("%b %Y")
@@ -245,9 +254,9 @@ if not future_df.empty and future_items:
         if appt_id in future_appt_ids:
             future_np_value += Decimal(str(item.get("cost") or 0))
     # Fallback: if no match, show total of all items in range
-    if future_np_value == 0 and future_items:
-        for item in future_items:
-            future_np_value += Decimal(str(item.get("cost") or 0))
+if future_items:
+    for item in future_items:
+        future_np_value += Decimal(str(item.get("cost") or 0))
 elif not future_df.empty:
     for pid in future_df["patientId"].astype(str).unique():
         if pid in np_patients:
@@ -267,6 +276,7 @@ coll_ratio = (float(payments) / float(production) * 100) if production else 0
 
 # Previous month metrics
 prev_np_patients = set()
+prev_np_with_more = set()
 prev_production = Decimal(0)
 prev_payments = Decimal(0)
 if prev_ledger:
@@ -274,20 +284,33 @@ if prev_ledger:
         calc = entry.get("calculations") or {}
         prev_production += Decimal(str(calc.get("production") or 0))
         prev_payments += Decimal(str(calc.get("payments") or 0))
-        if entry.get("transactionType") == "Invoice" and entry.get("amount") == "49.00":
+        if entry.get("transactionType") == "Invoice":
+            amt = Decimal(str(entry.get("amount") or 0))
             pid = str(entry.get("patientId") or "")
-            if pid:
+            if amt == Decimal("49.00") and pid:
                 prev_np_patients.add(pid)
+            elif amt > Decimal("49.00") and pid:
+                prev_np_with_more.add(pid)
 
+prev_completed_np = prev_np_patients & prev_np_with_more
 prev_unique = prev_df["patientId"].nunique() if not prev_df.empty else 0
 prev_completed = 0
+prev_noshow = 0
+prev_cancelled = 0
 if not prev_df.empty:
     prev_df["bucket"] = prev_df["status"].map(status_bucket)
     prev_completed = int((prev_df["bucket"] == "Completed").sum())
+    prev_noshow = int((prev_df["bucket"] == "No-Show").sum())
+    prev_cancelled = int((prev_df["bucket"] == "Cancelled").sum())
 prev_days = max(1, (prev_end_date - prev_month_start).days + 1)
 prev_prod_day = float(prev_production) / prev_days if prev_production else 0
 prev_prod_pat = float(prev_production) / prev_unique if prev_unique else 0
 prev_coll_ratio = (float(prev_payments) / float(prev_production) * 100) if prev_production else 0
+prev_total_appts = len(prev_df) if not prev_df.empty else 1
+prev_noshow_rate = 100.0 * prev_noshow / prev_total_appts if prev_total_appts else 0
+prev_cancel_rate = 100.0 * prev_cancelled / prev_total_appts if prev_total_appts else 0
+prev_np_total = len(prev_np_patients) or 1
+prev_pct = lambda n: f"{n} ({100.0 * n / prev_np_total:.0f}%)"
 
 # ---------------------------------------------------------------------------
 # 1. Clinic Performance Scorecard
@@ -329,14 +352,14 @@ scorecard = pd.DataFrame({
     ],
     prev_label: [
         str(len(prev_np_patients)),
-        "—",
+        prev_pct(len(prev_completed_np)),
         "—",
         "—",
         "—",
         str(prev_unique),
         str(prev_completed),
-        "—",
-        "—",
+        f"{prev_noshow} ({prev_noshow_rate:.1f}%)",
+        f"{prev_cancelled} ({prev_cancel_rate:.1f}%)",
         f"${prev_payments:,.2f} ({prev_coll_ratio:.1f}%)",
         f"${prev_production:,.2f}",
         f"${prev_prod_day:,.2f}",
