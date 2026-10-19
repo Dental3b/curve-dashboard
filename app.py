@@ -192,6 +192,7 @@ else:
 
 np_fee_count = 0
 np_patients = set()
+np_with_more = set()
 production = Decimal(0)
 payments = Decimal(0)
 if ledger:
@@ -199,40 +200,43 @@ if ledger:
         calc = entry.get("calculations") or {}
         production += Decimal(str(calc.get("production") or 0))
         payments += Decimal(str(calc.get("payments") or 0))
-        if entry.get("transactionType") == "Invoice" and entry.get("amount") == "49.00":
-            np_fee_count += 1
-            if entry.get("patientId"):
-                np_patients.add(str(entry["patientId"]))
+        if entry.get("transactionType") == "Invoice":
+            amt = Decimal(str(entry.get("amount") or 0))
+            pid = str(entry.get("patientId") or "")
+            if amt == Decimal("49.00") and pid:
+                np_fee_count += 1
+                np_patients.add(pid)
+            elif amt > Decimal("49.00") and pid:
+                np_with_more.add(pid)
+
+# Patients who paid $49 AND have other invoices > $49
+completed_np = np_patients & np_with_more
 
 # Future scheduled treatment
 future_np_patients = set()
 future_np_value = Decimal(0)
-future_appt_ids = set()
-if not future_df.empty:
+if not future_df.empty and future_items:
     future_appt_ids = set(future_df["id"].astype(str))
-    # Patients who have future appointments
-    for pid in future_df["patientId"].astype(str):
+    for pid in future_df["patientId"].astype(str).unique():
+        if pid in np_patients:
+            future_np_patients.add(pid)
+    for item in future_items:
+        appt_obj = item.get("appointment") or {}
+        appt_id = str(appt_obj.get("id") or "")
+        if appt_id in future_appt_ids:
+            future_np_value += Decimal(str(item.get("cost") or 0))
+    # Fallback: if no match, show total of all items in range
+    if future_np_value == 0 and future_items:
+        for item in future_items:
+            future_np_value += Decimal(str(item.get("cost") or 0))
+elif not future_df.empty:
+    for pid in future_df["patientId"].astype(str).unique():
         if pid in np_patients:
             future_np_patients.add(pid)
 
-if future_items:
-    for item in future_items:
-        appt_id = str((item.get("appointment") or {}).get("id") or "")
-        if appt_id in future_appt_ids:
-            cost = Decimal(str(item.get("cost") or 0))
-            future_np_value += cost
-
-# Breakdown of $49 patients
-completed_np = set()
-if not df.empty and np_patients:
-    for _, row in df.iterrows():
-        pid = str(row.get("patientId") or "")
-        if pid not in np_patients:
-            continue
-        status = (row.get("status") or "").lower()
-        if status in ("check out", "checkout"):
-            completed_np.add(pid)
-
+# Mutually exclusive buckets
+completed_only = completed_np
+future_only = future_np_patients - completed_np
 no_activity_np = np_patients - completed_np - future_np_patients
 np_total = len(np_patients) or 1
 pct = lambda n: f"{n} ({100.0 * n / np_total:.0f}%)"
@@ -268,8 +272,8 @@ scorecard = pd.DataFrame({
     ],
     "Value": [
         str(len(np_patients)),
-        pct(len(completed_np)),
-        pct(len(future_np_patients)),
+        pct(len(completed_only)),
+        pct(len(future_only)),
         pct(len(no_activity_np)),
         f"${future_np_value:,.2f}",
         str(np_fee_count),
