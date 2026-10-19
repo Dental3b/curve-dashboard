@@ -185,14 +185,17 @@ except Exception as e:
 clinic_name = clinics[0].get("name", "Practice") if clinics else "Practice"
 
 # Header with logo
-col_logo, col_title = st.columns([1, 5])
+import os
+col_logo, col_title = st.columns([1, 6])
 with col_logo:
-    try:
-        st.image("logo.jpg", width=120)
-    except Exception:
-        pass
+    logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
+    if not os.path.exists(logo_path):
+        logo_path = "logo.jpg"
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=180)
 with col_title:
     st.title(clinic_name)
+    st.caption(f"Performance Scorecard · {curr_label} MTD ({start_date} to {end_date}) vs {prev_label}")
 
 # Labels for comparison (defined early)
 prev_label = prev_month_start.strftime("%b %Y")
@@ -330,11 +333,6 @@ scorecard = pd.DataFrame({
         "Completed Appointments",
         "No-shows",
         "Cancelled",
-        "Collections (Payments)",
-        "Adjusted Production",
-        "Production / Day",
-        "Production / Patient",
-        "Days in range",
     ],
     curr_label: [
         str(len(np_patients)),
@@ -346,11 +344,6 @@ scorecard = pd.DataFrame({
         str(completed),
         f"{noshow} ({noshow_rate:.1f}%)",
         f"{cancelled} ({cancel_rate:.1f}%)",
-        f"${payments:,.2f} ({coll_ratio:.1f}%)",
-        f"${production:,.2f}",
-        f"${prod_per_day:,.2f}",
-        f"${prod_per_patient:,.2f}",
-        str(days_in_range),
     ],
     prev_label: [
         str(len(prev_np_patients)),
@@ -362,14 +355,37 @@ scorecard = pd.DataFrame({
         str(prev_completed),
         f"{prev_noshow} ({prev_noshow_rate:.1f}%)",
         f"{prev_cancelled} ({prev_cancel_rate:.1f}%)",
-        f"${prev_payments:,.2f} ({prev_coll_ratio:.1f}%)",
+    ],
+})
+st.dataframe(scorecard, use_container_width=True, hide_index=True, height=380)
+
+st.markdown("---")
+st.subheader("Financials")
+
+fin_scorecard = pd.DataFrame({
+    "KPI": [
+        "Adjusted Production",
+        "Collections (Payments)",
+        "Production / Day",
+        "Production / Patient",
+        "Days in range",
+    ],
+    curr_label: [
+        f"${production:,.2f}",
+        f"${payments:,.2f} ({coll_ratio:.1f}%)",
+        f"${prod_per_day:,.2f}",
+        f"${prod_per_patient:,.2f}",
+        str(days_in_range),
+    ],
+    prev_label: [
         f"${prev_production:,.2f}",
+        f"${prev_payments:,.2f} ({prev_coll_ratio:.1f}%)",
         f"${prev_prod_day:,.2f}",
         f"${prev_prod_pat:,.2f}",
         str(prev_days),
     ],
 })
-st.dataframe(scorecard, use_container_width=True, hide_index=True, height=460)
+st.dataframe(fin_scorecard, use_container_width=True, hide_index=True, height=220)
 
 # ---------------------------------------------------------------------------
 # 2. Production by Provider (dollars from ledger)
@@ -392,14 +408,24 @@ if ledger:
         prov_prod[name]["Production"] += prod
         prov_prod[name]["Collections"] += pay
     if prov_prod:
+        total_prod = sum(v["Production"] for v in prov_prod.values())
+        total_coll = sum(v["Collections"] for v in prov_prod.values())
         rows = []
         for name, vals in sorted(prov_prod.items(), key=lambda x: -x[1]["Production"]):
+            pct_prod = (float(vals["Production"]) / float(total_prod) * 100) if total_prod else 0
             rows.append({
                 "Provider": name,
                 "Production": f"${vals['Production']:,.2f}",
+                "% of Prod": f"{pct_prod:.1f}%",
                 "Collections": f"${vals['Collections']:,.2f}",
             })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True, height=min(400, 40 + 35 * len(rows)))
+        rows.append({
+            "Provider": "TOTAL",
+            "Production": f"${total_prod:,.2f}",
+            "% of Prod": "100%",
+            "Collections": f"${total_coll:,.2f}",
+        })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True, height=min(450, 40 + 35 * len(rows)))
     else:
         st.info("No production data in ledger for this range.")
 else:
