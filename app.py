@@ -182,6 +182,10 @@ except Exception as e:
 
 clinic_name = clinics[0].get("name", "Practice") if clinics else "Practice"
 st.title(f"{clinic_name}")
+
+# Labels for comparison (defined early)
+prev_label = prev_month_start.strftime("%b %Y")
+curr_label = start_date.strftime("%b %Y")
 st.caption(f"Performance Scorecard · {curr_label} MTD ({start_date} to {end_date}) vs {prev_label}")
 
 # ---------------------------------------------------------------------------
@@ -284,9 +288,6 @@ prev_days = max(1, (prev_end_date - prev_month_start).days + 1)
 prev_prod_day = float(prev_production) / prev_days if prev_production else 0
 prev_prod_pat = float(prev_production) / prev_unique if prev_unique else 0
 prev_coll_ratio = (float(prev_payments) / float(prev_production) * 100) if prev_production else 0
-
-prev_label = prev_month_start.strftime("%b %Y")
-curr_label = start_date.strftime("%b %Y")
 
 # ---------------------------------------------------------------------------
 # 1. Clinic Performance Scorecard
