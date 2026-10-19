@@ -195,7 +195,6 @@ with col_logo:
         st.image(logo_path, width=180)
 with col_title:
     st.title(clinic_name)
-    st.caption(f"Performance Scorecard · {curr_label} MTD ({start_date} to {end_date}) vs {prev_label}")
 
 # Labels for comparison (defined early)
 prev_label = prev_month_start.strftime("%b %Y")
