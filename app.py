@@ -59,6 +59,11 @@ def load_appointments(start_str: str, end_str: str):
 
 
 @st.cache_data(ttl=180)
+def load_ledger(start_str: str, end_str: str):
+    return get_api().get_ledger_entries(start_str, end_str)
+
+
+@st.cache_data(ttl=180)
 def load_appointment_items(start_str: str, end_str: str):
     return get_api().get_appointment_items(start_str, end_str)
 
