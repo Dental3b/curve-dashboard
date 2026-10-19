@@ -60,7 +60,9 @@ def load_appointments(start_str: str, end_str: str):
 
 @st.cache_data(ttl=180)
 def load_ledger(start_str: str, end_str: str):
-    return get_api().get_ledger_entries(start_str, end_str)
+    # Curve ledger endDate is exclusive, so add 1 day
+    end_dt = datetime.strptime(end_str, "%Y-%m-%d") + timedelta(days=1)
+    return get_api().get_ledger_entries(start_str, end_dt.strftime("%Y-%m-%d"))
 
 
 @st.cache_data(ttl=180)
@@ -370,19 +372,38 @@ scorecard = pd.DataFrame({
 st.dataframe(scorecard, use_container_width=True, hide_index=True, height=460)
 
 # ---------------------------------------------------------------------------
-# 2. Production by Provider
+# 2. Production by Provider (dollars from ledger)
 # ---------------------------------------------------------------------------
 st.subheader("2. Production by Provider")
-if not df.empty:
-    by_prov = (
-        df.groupby(["providerName", "bucket"])
-        .size()
-        .reset_index(name="count")
-    )
-    pivot = by_prov.pivot(index="providerName", columns="bucket", values="count").fillna(0).astype(int)
-    pivot["Total"] = pivot.sum(axis=1)
-    pivot = pivot.sort_values("Total", ascending=False)
-    st.dataframe(pivot, use_container_width=True, height=min(400, 40 + 35 * len(pivot)))
+if ledger:
+    staff_by_id = {str(s.get("id")): f"{s.get('firstName','')} {s.get('lastName','')}".strip() or s.get("shortName") or str(s.get("id")) for s in staff}
+    prov_prod = {}
+    for entry in ledger:
+        calc = entry.get("calculations") or {}
+        prod = Decimal(str(calc.get("production") or 0))
+        pay = Decimal(str(calc.get("payments") or 0))
+        if prod == 0 and pay == 0:
+            continue
+        p2 = entry.get("provider2") or {}
+        pid = str(p2.get("id") or "")
+        name = staff_by_id.get(pid) or p2.get("kind") or "Unknown"
+        if name not in prov_prod:
+            prov_prod[name] = {"Production": Decimal(0), "Collections": Decimal(0)}
+        prov_prod[name]["Production"] += prod
+        prov_prod[name]["Collections"] += pay
+    if prov_prod:
+        rows = []
+        for name, vals in sorted(prov_prod.items(), key=lambda x: -x[1]["Production"]):
+            rows.append({
+                "Provider": name,
+                "Production": f"${vals['Production']:,.2f}",
+                "Collections": f"${vals['Collections']:,.2f}",
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True, height=min(400, 40 + 35 * len(rows)))
+    else:
+        st.info("No production data in ledger for this range.")
+else:
+    st.info("No ledger data.")
 
 # ---------------------------------------------------------------------------
 # 3. Charts
