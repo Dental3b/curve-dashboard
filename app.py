@@ -123,7 +123,9 @@ st.sidebar.title("🦷 Curve Dental")
 st.sidebar.caption("Practice Dashboard")
 
 today = datetime.now().date()
-default_start = today - timedelta(days=6)
+# Month to date by default
+mtd_start = today.replace(day=1)
+default_start = mtd_start
 default_end = today
 
 date_range = st.sidebar.date_input(
@@ -136,6 +138,15 @@ if isinstance(date_range, tuple) and len(date_range) == 2:
     start_date, end_date = date_range
 else:
     start_date = end_date = date_range if not isinstance(date_range, tuple) else today
+
+# Previous month same period for comparison
+prev_month_end = start_date - timedelta(days=1)
+prev_month_start = prev_month_end.replace(day=1)
+# Same number of days into previous month
+days_into_month = (end_date - start_date).days
+prev_end_date = prev_month_start + timedelta(days=days_into_month)
+if prev_end_date > prev_month_end:
+    prev_end_date = prev_month_end
 
 st.sidebar.markdown("---")
 if st.sidebar.button("🔄 Refresh data", use_container_width=True):
@@ -160,6 +171,10 @@ try:
     future_appts = load_appointments(future_start, future_end)
     future_df = appts_to_df(future_appts)
     future_items = load_appointment_items(future_start, future_end)
+    # Previous month comparison
+    prev_appts = load_appointments(prev_month_start.isoformat(), prev_end_date.isoformat())
+    prev_df = appts_to_df(prev_appts)
+    prev_ledger = load_ledger(prev_month_start.isoformat(), prev_end_date.isoformat())
 except Exception as e:
     st.error(f"Could not load data from Curve API: {e}")
     st.info("Check your `.env` credentials (CURVE_CLIENT_ID, CURVE_CLIENT_SECRET, CURVE_INSTANCE).")
@@ -167,7 +182,7 @@ except Exception as e:
 
 clinic_name = clinics[0].get("name", "Practice") if clinics else "Practice"
 st.title(f"{clinic_name}")
-st.caption(f"Performance Scorecard · {start_date} to {end_date}")
+st.caption(f"Performance Scorecard · {curr_label} MTD ({start_date} to {end_date}) vs {prev_label}")
 
 # ---------------------------------------------------------------------------
 # Compute metrics
@@ -246,6 +261,33 @@ prod_per_day = float(production) / days_in_range if production else 0
 prod_per_patient = float(production) / unique_patients if unique_patients else 0
 coll_ratio = (float(payments) / float(production) * 100) if production else 0
 
+# Previous month metrics
+prev_np_patients = set()
+prev_production = Decimal(0)
+prev_payments = Decimal(0)
+if prev_ledger:
+    for entry in prev_ledger:
+        calc = entry.get("calculations") or {}
+        prev_production += Decimal(str(calc.get("production") or 0))
+        prev_payments += Decimal(str(calc.get("payments") or 0))
+        if entry.get("transactionType") == "Invoice" and entry.get("amount") == "49.00":
+            pid = str(entry.get("patientId") or "")
+            if pid:
+                prev_np_patients.add(pid)
+
+prev_unique = prev_df["patientId"].nunique() if not prev_df.empty else 0
+prev_completed = 0
+if not prev_df.empty:
+    prev_df["bucket"] = prev_df["status"].map(status_bucket)
+    prev_completed = int((prev_df["bucket"] == "Completed").sum())
+prev_days = max(1, (prev_end_date - prev_month_start).days + 1)
+prev_prod_day = float(prev_production) / prev_days if prev_production else 0
+prev_prod_pat = float(prev_production) / prev_unique if prev_unique else 0
+prev_coll_ratio = (float(prev_payments) / float(prev_production) * 100) if prev_production else 0
+
+prev_label = prev_month_start.strftime("%b %Y")
+curr_label = start_date.strftime("%b %Y")
+
 # ---------------------------------------------------------------------------
 # 1. Clinic Performance Scorecard
 # ---------------------------------------------------------------------------
@@ -258,35 +300,47 @@ scorecard = pd.DataFrame({
         "→ Have future appointment",
         "→ No activity yet",
         "Scheduled treatment value (next 2 wks)",
-        "Unique $49 invoices",
         "Patients Seen",
         "Completed Appointments",
         "No-shows",
         "Cancelled",
-        "Adjusted Production",
         "Collections (Payments)",
-        "Collections / Production",
+        "Adjusted Production",
         "Production / Day",
         "Production / Patient",
         "Days in range",
     ],
-    "Value": [
+    curr_label: [
         str(len(np_patients)),
         pct(len(completed_only)),
         pct(len(future_only)),
         pct(len(no_activity_np)),
         f"${future_np_value:,.2f}",
-        str(np_fee_count),
         str(unique_patients),
         str(completed),
         f"{noshow} ({noshow_rate:.1f}%)",
         f"{cancelled} ({cancel_rate:.1f}%)",
+        f"${payments:,.2f} ({coll_ratio:.1f}%)",
         f"${production:,.2f}",
-        f"${payments:,.2f}",
-        f"{coll_ratio:.1f}%",
         f"${prod_per_day:,.2f}",
         f"${prod_per_patient:,.2f}",
         str(days_in_range),
+    ],
+    prev_label: [
+        str(len(prev_np_patients)),
+        "—",
+        "—",
+        "—",
+        "—",
+        str(prev_unique),
+        str(prev_completed),
+        "—",
+        "—",
+        f"${prev_payments:,.2f} ({prev_coll_ratio:.1f}%)",
+        f"${prev_production:,.2f}",
+        f"${prev_prod_day:,.2f}",
+        f"${prev_prod_pat:,.2f}",
+        str(prev_days),
     ],
 })
 st.dataframe(scorecard, use_container_width=True, hide_index=True, height=460)
