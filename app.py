@@ -154,9 +154,11 @@ try:
     appts = load_appointments(start_date.isoformat(), end_date.isoformat())
     df = appts_to_df(appts)
     ledger = load_ledger(start_date.isoformat(), end_date.isoformat())
-    # Next 2 weeks appointment items
+    # Future appointments (next 2 weeks) and their items
     future_start = (end_date + timedelta(days=1)).isoformat()
     future_end = (end_date + timedelta(days=14)).isoformat()
+    future_appts = load_appointments(future_start, future_end)
+    future_df = appts_to_df(future_appts)
     future_items = load_appointment_items(future_start, future_end)
 except Exception as e:
     st.error(f"Could not load data from Curve API: {e}")
@@ -202,24 +204,26 @@ if ledger:
             if entry.get("patientId"):
                 np_patients.add(str(entry["patientId"]))
 
-# Future scheduled treatment for new patients
+# Future scheduled treatment
 future_np_patients = set()
 future_np_value = Decimal(0)
-if future_items and np_patients:
-    for item in future_items:
-        cost = Decimal(str(item.get("cost") or 0))
-        future_np_value += cost
-        pid = None
-        if isinstance(item.get("patient"), dict):
-            pid = str(item["patient"].get("id") or "")
-        elif item.get("patientId"):
-            pid = str(item["patientId"])
-        if pid and pid in np_patients:
+future_appt_ids = set()
+if not future_df.empty:
+    future_appt_ids = set(future_df["id"].astype(str))
+    # Patients who have future appointments
+    for pid in future_df["patientId"].astype(str):
+        if pid in np_patients:
             future_np_patients.add(pid)
 
-# Breakdown of $49 patients using appointments in range
+if future_items:
+    for item in future_items:
+        appt_id = str((item.get("appointment") or {}).get("id") or "")
+        if appt_id in future_appt_ids:
+            cost = Decimal(str(item.get("cost") or 0))
+            future_np_value += cost
+
+# Breakdown of $49 patients
 completed_np = set()
-future_appt_np = set()
 if not df.empty and np_patients:
     for _, row in df.iterrows():
         pid = str(row.get("patientId") or "")
@@ -228,10 +232,8 @@ if not df.empty and np_patients:
         status = (row.get("status") or "").lower()
         if status in ("check out", "checkout"):
             completed_np.add(pid)
-        if status in ("active", "check in", "checkin"):
-            future_appt_np.add(pid)
 
-no_activity_np = np_patients - completed_np - future_appt_np
+no_activity_np = np_patients - completed_np - future_np_patients
 np_total = len(np_patients) or 1
 pct = lambda n: f"{n} ({100.0 * n / np_total:.0f}%)"
 
@@ -267,7 +269,7 @@ scorecard = pd.DataFrame({
     "Value": [
         str(len(np_patients)),
         pct(len(completed_np)),
-        pct(len(future_appt_np)),
+        pct(len(future_np_patients)),
         pct(len(no_activity_np)),
         f"${future_np_value:,.2f}",
         str(np_fee_count),
