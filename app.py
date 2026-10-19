@@ -59,8 +59,8 @@ def load_appointments(start_str: str, end_str: str):
 
 
 @st.cache_data(ttl=180)
-def load_ledger(start_str: str, end_str: str):
-    return get_api().get_ledger_entries(start_str, end_str)
+def load_appointment_items(start_str: str, end_str: str):
+    return get_api().get_appointment_items(start_str, end_str)
 
 
 @st.cache_data(ttl=300)
@@ -149,6 +149,10 @@ try:
     appts = load_appointments(start_date.isoformat(), end_date.isoformat())
     df = appts_to_df(appts)
     ledger = load_ledger(start_date.isoformat(), end_date.isoformat())
+    # Next 2 weeks appointment items
+    future_start = (end_date + timedelta(days=1)).isoformat()
+    future_end = (end_date + timedelta(days=14)).isoformat()
+    future_items = load_appointment_items(future_start, future_end)
 except Exception as e:
     st.error(f"Could not load data from Curve API: {e}")
     st.info("Check your `.env` credentials (CURVE_CLIENT_ID, CURVE_CLIENT_SECRET, CURVE_INSTANCE).")
@@ -193,6 +197,39 @@ if ledger:
             if entry.get("patientId"):
                 np_patients.add(str(entry["patientId"]))
 
+# Future scheduled treatment for new patients
+future_np_patients = set()
+future_np_value = Decimal(0)
+if future_items and np_patients:
+    for item in future_items:
+        cost = Decimal(str(item.get("cost") or 0))
+        future_np_value += cost
+        pid = None
+        if isinstance(item.get("patient"), dict):
+            pid = str(item["patient"].get("id") or "")
+        elif item.get("patientId"):
+            pid = str(item["patientId"])
+        if pid and pid in np_patients:
+            future_np_patients.add(pid)
+
+# Breakdown of $49 patients using appointments in range
+completed_np = set()
+future_appt_np = set()
+if not df.empty and np_patients:
+    for _, row in df.iterrows():
+        pid = str(row.get("patientId") or "")
+        if pid not in np_patients:
+            continue
+        status = (row.get("status") or "").lower()
+        if status in ("check out", "checkout"):
+            completed_np.add(pid)
+        if status in ("active", "check in", "checkin"):
+            future_appt_np.add(pid)
+
+no_activity_np = np_patients - completed_np - future_appt_np
+np_total = len(np_patients) or 1
+pct = lambda n: f"{n} ({100.0 * n / np_total:.0f}%)"
+
 days_in_range = max(1, (end_date - start_date).days + 1)
 prod_per_day = float(production) / days_in_range if production else 0
 prod_per_patient = float(production) / unique_patients if unique_patients else 0
@@ -205,32 +242,40 @@ st.subheader("1. Clinic Performance")
 
 scorecard = pd.DataFrame({
     "KPI": [
-        "Adjusted Production",
-        "Collections (Payments)",
-        "Collections / Production",
-        "Days in range",
+        "New patients (paid $49)",
+        "→ Already completed something",
+        "→ Have future appointment",
+        "→ No activity yet",
+        "Scheduled treatment value (next 2 wks)",
+        "Unique $49 invoices",
         "Patients Seen",
         "Completed Appointments",
         "No-shows",
         "Cancelled",
+        "Adjusted Production",
+        "Collections (Payments)",
+        "Collections / Production",
         "Production / Day",
         "Production / Patient",
-        "New Patient $49 fees",
-        "Unique $49 patients",
+        "Days in range",
     ],
     "Value": [
-        f"${production:,.2f}",
-        f"${payments:,.2f}",
-        f"{coll_ratio:.1f}%",
-        str(days_in_range),
+        str(len(np_patients)),
+        pct(len(completed_np)),
+        pct(len(future_appt_np)),
+        pct(len(no_activity_np)),
+        f"${future_np_value:,.2f}",
+        str(np_fee_count),
         str(unique_patients),
         str(completed),
         f"{noshow} ({noshow_rate:.1f}%)",
         f"{cancelled} ({cancel_rate:.1f}%)",
+        f"${production:,.2f}",
+        f"${payments:,.2f}",
+        f"{coll_ratio:.1f}%",
         f"${prod_per_day:,.2f}",
         f"${prod_per_patient:,.2f}",
-        str(np_fee_count),
-        str(len(np_patients)),
+        str(days_in_range),
     ],
 })
 st.dataframe(scorecard, use_container_width=True, hide_index=True, height=460)
