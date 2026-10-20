@@ -338,7 +338,6 @@ scorecard = pd.DataFrame({
         "→ Already completed something",
         "→ Have future appointment",
         "→ No activity yet",
-        "Scheduled treatment value (rest of month)",
         "Patients Seen",
         "Completed Appointments",
         "No-shows",
@@ -386,7 +385,6 @@ fin_scorecard = pd.DataFrame({
         "Production / Day",
         "Production / Patient",
         "Days in range",
-        "Month projection",
     ],
     curr_label: [
         f"${production:,.2f}",
@@ -394,7 +392,6 @@ fin_scorecard = pd.DataFrame({
         f"${prod_per_day:,.2f}",
         f"${prod_per_patient:,.2f}",
         str(days_in_range),
-        f"${month_projection:,.2f}",
     ],
     prev_label: [
         f"${prev_production:,.2f}",
@@ -402,16 +399,40 @@ fin_scorecard = pd.DataFrame({
         f"${prev_prod_day:,.2f}",
         f"${prev_prod_pat:,.2f}",
         str(prev_days),
-        "—",
     ],
 })
-st.dataframe(fin_scorecard, use_container_width=True, hide_index=True, height=250)
-st.caption("Month projection = Collections + scheduled treatments for rest of month")
+st.dataframe(fin_scorecard, use_container_width=True, hide_index=True, height=220)
 
 # ---------------------------------------------------------------------------
-# 2. Production by Provider (dollars from ledger)
+# 2. Treatment Plans (new patients)
 # ---------------------------------------------------------------------------
-st.subheader("2. Production by Provider")
+st.subheader("2. Treatment Plans (new patients)")
+if treatment_plans and np_patients:
+    month_prefix = start_date.strftime("%Y-%m")
+    patients_with_plan = set()
+    for p in treatment_plans:
+        pid = str(p.get("patient", {}).get("id") or "")
+        created = str(p.get("createdAt") or "")
+        if pid in np_patients and created.startswith(month_prefix):
+            patients_with_plan.add(pid)
+    converted = patients_with_plan & (np_with_more | future_np_patients)
+    no_activity = patients_with_plan - converted
+    no_plan = np_patients - patients_with_plan
+    tp_rows = [
+        {"Metric": "New patients", "Count": str(len(np_patients)), "%": "100%"},
+        {"Metric": "With treatment plan", "Count": str(len(patients_with_plan)), "%": f"{100*len(patients_with_plan)/len(np_patients):.0f}%"},
+        {"Metric": "→ Completed or scheduled", "Count": str(len(converted)), "%": f"{100*len(converted)/len(np_patients):.0f}%"},
+        {"Metric": "→ No activity yet", "Count": str(len(no_activity)), "%": f"{100*len(no_activity)/len(np_patients):.0f}%"},
+        {"Metric": "No treatment plan", "Count": str(len(no_plan)), "%": f"{100*len(no_plan)/len(np_patients):.0f}%"},
+    ]
+    st.dataframe(pd.DataFrame(tp_rows), use_container_width=True, hide_index=True, height=220)
+else:
+    st.info("Treatment plan data not available.")
+
+# ---------------------------------------------------------------------------
+# 3. Production by Provider (dollars from ledger)
+# ---------------------------------------------------------------------------
+st.subheader("3. Production by Provider")
 if ledger:
     staff_by_id = {str(s.get("id")): f"{s.get('firstName','')} {s.get('lastName','')}".strip() or s.get("shortName") or str(s.get("id")) for s in staff}
     prov_prod = {}
@@ -455,7 +476,7 @@ else:
 # ---------------------------------------------------------------------------
 # 3. Scheduled Treatments (rest of month)
 # ---------------------------------------------------------------------------
-st.subheader("3. Scheduled Treatments (rest of month)")
+st.subheader("4. Scheduled Treatments (rest of month)")
 st.caption(f"Looking from {future_start} to {future_end} · {len(future_appts)} appointments · {len(future_items)} items")
 if future_items:
     appt_lookup = {str(row["id"]): row for _, row in future_df.iterrows()} if not future_df.empty else {}
@@ -516,34 +537,6 @@ if future_items:
         st.info("No scheduled treatments with cost for the rest of the month.")
 else:
     st.info("No future appointment data.")
-
-# ---------------------------------------------------------------------------
-# 4. Treatment Plans (new patients)
-# ---------------------------------------------------------------------------
-st.subheader("4. Treatment Plans (new patients)")
-st.caption(f"Plans loaded: {len(treatment_plans) if treatment_plans else 0} · New patients: {len(np_patients)}")
-if treatment_plans and np_patients:
-    month_prefix = start_date.strftime("%Y-%m")
-    patients_with_plan = set()
-    for p in treatment_plans:
-        pid = str(p.get("patient", {}).get("id") or "")
-        created = str(p.get("createdAt") or "")
-        if pid in np_patients and created.startswith(month_prefix):
-            patients_with_plan.add(pid)
-    # Converted = already paid >$49 OR have future appointment
-    converted = patients_with_plan & (np_with_more | future_np_patients)
-    no_activity = patients_with_plan - converted
-    no_plan = np_patients - patients_with_plan
-    tp_rows = [
-        {"Metric": "New patients", "Count": str(len(np_patients)), "%": "100%"},
-        {"Metric": "With treatment plan", "Count": str(len(patients_with_plan)), "%": f"{100*len(patients_with_plan)/len(np_patients):.0f}%"},
-        {"Metric": "→ Completed or scheduled", "Count": str(len(converted)), "%": f"{100*len(converted)/len(np_patients):.0f}%"},
-        {"Metric": "→ No activity yet", "Count": str(len(no_activity)), "%": f"{100*len(no_activity)/len(np_patients):.0f}%"},
-        {"Metric": "No treatment plan", "Count": str(len(no_plan)), "%": f"{100*len(no_plan)/len(np_patients):.0f}%"},
-    ]
-    st.dataframe(pd.DataFrame(tp_rows), use_container_width=True, hide_index=True, height=220)
-else:
-    st.info("No treatment plan data.")
 
 st.markdown("---")
 st.caption("Data from Curve Hero API. Production and payments from ledger entries. $49 = new patient fee invoices.")
