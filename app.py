@@ -146,10 +146,10 @@ if isinstance(date_range, tuple) and len(date_range) == 2:
 else:
     start_date = end_date = date_range if not isinstance(date_range, tuple) else today
 
-# Previous month same period for comparison
-prev_month_end = start_date - timedelta(days=1)
+# Previous month (always the calendar month before the selected start)
+prev_month_end = start_date.replace(day=1) - timedelta(days=1)
 prev_month_start = prev_month_end.replace(day=1)
-# Same number of days into previous month
+# Same number of days into previous month for comparison
 days_into_month = (end_date - start_date).days
 prev_end_date = prev_month_start + timedelta(days=days_into_month)
 if prev_end_date > prev_month_end:
@@ -188,8 +188,9 @@ try:
     prev_appts = load_appointments(prev_month_start.isoformat(), prev_end_date.isoformat())
     prev_df = appts_to_df(prev_appts)
     prev_ledger = load_ledger(prev_month_start.isoformat(), prev_end_date.isoformat())
-    # Full previous month for closing (end of previous month + 1 day for exclusive endDate)
-    prev_month_end_full = (prev_month_start + timedelta(days=32)).replace(day=1)
+    # Full previous month for closing
+    prev_month_end_full = prev_month_start.replace(day=1) + timedelta(days=32)
+    prev_month_end_full = prev_month_end_full.replace(day=1)
     prev_full_ledger = load_ledger(prev_month_start.isoformat(), prev_month_end_full.isoformat())
 except Exception as e:
     st.error(f"Could not load data from Curve API: {e}")
