@@ -182,6 +182,15 @@ class CurveAPI:
             params["changedSince"] = changed_since
         return self._get_all_pages("patient", params, max_pages=10)
 
+    def get_appointment_items(self, start_date: str, end_date: str) -> list[dict]:
+        """Future (or any) appointment procedures with cost."""
+        data = self._get(
+            "appointment_items",
+            params={"startDate": start_date, "endDate": end_date},
+            cheetah=True,
+        )
+        return data.get("objects") or []
+
     def get_treatment_plans(self, max_pages: int = 20) -> list[dict]:
         """Fetch treatment plans."""
         objects: list = []
