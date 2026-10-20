@@ -66,8 +66,8 @@ def load_ledger(start_str: str, end_str: str):
 
 
 @st.cache_data(ttl=180)
-def load_appointment_items(start_str: str, end_str: str):
-    return get_api().get_appointment_items(start_str, end_str)
+def load_treatment_plans():
+    return get_api().get_treatment_plans_v2()
 
 
 @st.cache_data(ttl=300)
@@ -175,6 +175,7 @@ try:
     future_appts = load_appointments(future_start, future_end)
     future_df = appts_to_df(future_appts)
     future_items = load_appointment_items(future_start, future_end)
+    treatment_plans = load_treatment_plans()
     # Previous month comparison
     prev_appts = load_appointments(prev_month_start.isoformat(), prev_end_date.isoformat())
     prev_df = appts_to_df(prev_appts)
@@ -507,6 +508,33 @@ if future_items:
         st.info("No scheduled treatments with cost for the rest of the month.")
 else:
     st.info("No future appointment data.")
+
+# ---------------------------------------------------------------------------
+# 4. Treatment Plans (new patients)
+# ---------------------------------------------------------------------------
+st.subheader("4. Treatment Plans (new patients)")
+if treatment_plans and np_patients:
+    month_prefix = start_date.strftime("%Y-%m")
+    patients_with_plan = set()
+    for p in treatment_plans:
+        pid = str(p.get("patient", {}).get("id") or "")
+        created = str(p.get("createdAt") or "")
+        if pid in np_patients and created.startswith(month_prefix):
+            patients_with_plan.add(pid)
+    # Converted = already paid >$49 OR have future appointment
+    converted = patients_with_plan & (np_with_more | future_np_patients)
+    no_activity = patients_with_plan - converted
+    no_plan = np_patients - patients_with_plan
+    tp_rows = [
+        {"Metric": "New patients", "Count": str(len(np_patients)), "%": "100%"},
+        {"Metric": "With treatment plan", "Count": str(len(patients_with_plan)), "%": f"{100*len(patients_with_plan)/len(np_patients):.0f}%"},
+        {"Metric": "→ Completed or scheduled", "Count": str(len(converted)), "%": f"{100*len(converted)/len(np_patients):.0f}%"},
+        {"Metric": "→ No activity yet", "Count": str(len(no_activity)), "%": f"{100*len(no_activity)/len(np_patients):.0f}%"},
+        {"Metric": "No treatment plan", "Count": str(len(no_plan)), "%": f"{100*len(no_plan)/len(np_patients):.0f}%"},
+    ]
+    st.dataframe(pd.DataFrame(tp_rows), use_container_width=True, hide_index=True, height=220)
+else:
+    st.info("No treatment plan data.")
 
 st.markdown("---")
 st.caption("Data from Curve Hero API. Production and payments from ledger entries. $49 = new patient fee invoices.")

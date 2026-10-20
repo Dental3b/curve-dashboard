@@ -182,11 +182,31 @@ class CurveAPI:
             params["changedSince"] = changed_since
         return self._get_all_pages("patient", params, max_pages=10)
 
-    def get_appointment_items(self, start_date: str, end_date: str) -> list[dict]:
-        """Future (or any) appointment procedures with cost."""
-        data = self._get(
-            "appointment_items",
-            params={"startDate": start_date, "endDate": end_date},
-            cheetah=True,
-        )
-        return data.get("objects") or []
+    def get_treatment_plans(self, max_pages: int = 20) -> list[dict]:
+        """Fetch treatment plans."""
+        objects: list = []
+        data = self._get("/api/v2/treatment_plan", cheetah=False)
+        # v2 API uses different base
+        return objects
+
+    def get_treatment_plans_v2(self, max_pages: int = 15) -> list[dict]:
+        """Fetch treatment plans from v2 API."""
+        objects: list = []
+        url = f"https://{self.instance}.curvehero.com/api/v2/treatment_plan"
+        page = 0
+        while url and page < max_pages:
+            resp = requests.get(url, headers=self._headers(), timeout=60)
+            if not resp.ok:
+                break
+            data = resp.json()
+            objects.extend(data.get("objects") or [])
+            next_path = data.get("meta", {}).get("next")
+            if next_path:
+                if next_path.startswith("/"):
+                    url = f"https://{self.instance}.curvehero.com" + next_path
+                else:
+                    url = f"https://{self.instance}.curvehero.com/api/v2/" + next_path
+            else:
+                url = None
+            page += 1
+        return objects
