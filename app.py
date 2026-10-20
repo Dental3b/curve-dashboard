@@ -201,7 +201,7 @@ with col_title:
 # Labels for comparison (defined early)
 prev_label = prev_month_start.strftime("%b %Y")
 curr_label = start_date.strftime("%b %Y")
-st.caption(f"Performance Scorecard · {curr_label} MTD ({start_date} to {end_date}) vs {prev_label}")
+st.markdown(f"### Performance Scorecard · {curr_label} MTD ({start_date} to {end_date}) vs {prev_label}")
 
 # ---------------------------------------------------------------------------
 # Compute metrics
@@ -360,6 +360,13 @@ scorecard = pd.DataFrame({
 })
 st.dataframe(scorecard, use_container_width=True, hide_index=True, height=380)
 
+# Calculate scheduled treatments total early for projection
+scheduled_total = Decimal(0)
+if future_items:
+    for item in future_items:
+        scheduled_total += Decimal(str(item.get("amount") or item.get("cost") or 0))
+month_projection = payments + scheduled_total
+
 st.markdown("---")
 st.subheader("Financials")
 
@@ -370,6 +377,7 @@ fin_scorecard = pd.DataFrame({
         "Production / Day",
         "Production / Patient",
         "Days in range",
+        "Month projection",
     ],
     curr_label: [
         f"${production:,.2f}",
@@ -377,6 +385,7 @@ fin_scorecard = pd.DataFrame({
         f"${prod_per_day:,.2f}",
         f"${prod_per_patient:,.2f}",
         str(days_in_range),
+        f"${month_projection:,.2f}",
     ],
     prev_label: [
         f"${prev_production:,.2f}",
@@ -384,9 +393,11 @@ fin_scorecard = pd.DataFrame({
         f"${prev_prod_day:,.2f}",
         f"${prev_prod_pat:,.2f}",
         str(prev_days),
+        "—",
     ],
 })
-st.dataframe(fin_scorecard, use_container_width=True, hide_index=True, height=220)
+st.dataframe(fin_scorecard, use_container_width=True, hide_index=True, height=250)
+st.caption("Month projection = Collections + scheduled treatments for rest of month")
 
 # ---------------------------------------------------------------------------
 # 2. Production by Provider (dollars from ledger)
@@ -477,18 +488,6 @@ if future_items:
         })
     if treat_rows:
         st.markdown(f"**{len(patients)} patients** · **{len(treat_rows)} procedures** · **${total_treat:,.2f}** scheduled")
-        # By procedure
-        code_rows = []
-        for code, v in sorted(by_code.items(), key=lambda x: -x[1]["amount"]):
-            code_rows.append({
-                "Code": code,
-                "Procedure": v["name"][:40],
-                "Count": v["count"],
-                "Value": f"${v['amount']:,.2f}",
-            })
-        code_rows.append({"Code": "", "Procedure": "TOTAL", "Count": len(treat_rows), "Value": f"${total_treat:,.2f}"})
-        st.markdown("**By Procedure**")
-        st.dataframe(pd.DataFrame(code_rows), use_container_width=True, hide_index=True, height=min(400, 40 + 35 * len(code_rows)))
         # By provider
         prov_rows = []
         for prov, amt in sorted(by_prov.items(), key=lambda x: -x[1]):
@@ -508,50 +507,6 @@ if future_items:
         st.info("No scheduled treatments with cost for the rest of the month.")
 else:
     st.info("No future appointment data.")
-
-# ---------------------------------------------------------------------------
-# 4. Charts
-# ---------------------------------------------------------------------------
-st.subheader("4. Appointment status")
-left, right = st.columns(2)
-with left:
-    if not df.empty:
-        counts = df["bucket"].value_counts().reset_index()
-        counts.columns = ["Status", "Count"]
-        fig = px.pie(counts, names="Status", values="Count", hole=0.45)
-        fig.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=300)
-        st.plotly_chart(fig, use_container_width=True)
-with right:
-    if not df.empty:
-        by_day = df.groupby(["date", "bucket"]).size().reset_index(name="count")
-        fig2 = px.bar(by_day, x="date", y="count", color="bucket", barmode="stack")
-        fig2.update_layout(margin=dict(t=10, b=10), height=300, legend_title_text="")
-        st.plotly_chart(fig2, use_container_width=True)
-
-# ---------------------------------------------------------------------------
-# Practice details
-# ---------------------------------------------------------------------------
-with st.expander("Practice & staff details"):
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.markdown("**Clinic**")
-        if clinics:
-            c = clinics[0]
-            st.write(f"Name: {c.get('name')}")
-            addr = c.get("address") or {}
-            st.write(f"Address: {addr.get('line1') or ''}, {addr.get('city') or ''}")
-            st.write(f"Phone: {(c.get('officePhone') or {}).get('number') or '—'}")
-    with col_b:
-        st.markdown("**Active staff**")
-        active_staff = [s for s in staff if (s.get("status") or "").lower() == "active"]
-        if active_staff:
-            staff_df = pd.DataFrame([
-                {"Name": f"{s.get('firstName','')} {s.get('lastName','')}".strip(),
-                 "Role": s.get("kind") or "",
-                 "Short": s.get("shortName") or ""}
-                for s in active_staff[:25]
-            ])
-            st.dataframe(staff_df, use_container_width=True, height=250)
 
 st.markdown("---")
 st.caption("Data from Curve Hero API. Production and payments from ledger entries. $49 = new patient fee invoices.")
