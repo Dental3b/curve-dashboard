@@ -358,7 +358,6 @@ scorecard = pd.DataFrame({
         prev_pct(len(prev_completed_np)),
         "—",
         "—",
-        "—",
         str(prev_unique),
         str(prev_completed),
         f"{prev_noshow} ({prev_noshow_rate:.1f}%)",
