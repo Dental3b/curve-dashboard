@@ -436,8 +436,9 @@ else:
 # 3. Scheduled Treatments (rest of month)
 # ---------------------------------------------------------------------------
 st.subheader("3. Scheduled Treatments (rest of month)")
-if future_items and not future_df.empty:
-    appt_lookup = {str(row["id"]): row for _, row in future_df.iterrows()}
+st.caption(f"Looking from {future_start} to {future_end} · {len(future_appts)} appointments · {len(future_items)} items")
+if future_items:
+    appt_lookup = {str(row["id"]): row for _, row in future_df.iterrows()} if not future_df.empty else {}
     treat_rows = []
     by_prov = {}
     by_code = {}
