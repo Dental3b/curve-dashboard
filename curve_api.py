@@ -17,7 +17,8 @@ TOKEN_URL = "https://sso.curvehero.com/connect/token"
 DEFAULT_SCOPES = (
     "appointment:read patient:read clinic:read staff:read schedule:read "
     "appointment_tag:read chargeable_item:read insurance:read "
-    "ledger_entry:read accounts_receivable.all:read appointment.items:read"
+    "ledger_entry:read accounts_receivable.all:read appointment.items:read "
+    "treatment-plan:read"
 )
 
 
