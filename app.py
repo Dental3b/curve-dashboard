@@ -180,7 +180,10 @@ try:
     future_appts = load_appointments(future_start, future_end)
     future_df = appts_to_df(future_appts)
     future_items = load_appointment_items(future_start, future_end)
-    treatment_plans = load_treatment_plans()
+    try:
+        treatment_plans = load_treatment_plans()
+    except Exception:
+        treatment_plans = []
     # Previous month comparison
     prev_appts = load_appointments(prev_month_start.isoformat(), prev_end_date.isoformat())
     prev_df = appts_to_df(prev_appts)
