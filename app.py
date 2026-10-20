@@ -167,9 +167,11 @@ try:
     appts = load_appointments(start_date.isoformat(), end_date.isoformat())
     df = appts_to_df(appts)
     ledger = load_ledger(start_date.isoformat(), end_date.isoformat())
-    # Future appointments (next 2 weeks) and their items
+    # Rest of month scheduled treatments
+    month_end = end_date.replace(day=1) + timedelta(days=32)
+    month_end = month_end.replace(day=1) - timedelta(days=1)
     future_start = (end_date + timedelta(days=1)).isoformat()
-    future_end = (end_date + timedelta(days=14)).isoformat()
+    future_end = month_end.isoformat()
     future_appts = load_appointments(future_start, future_end)
     future_df = appts_to_df(future_appts)
     future_items = load_appointment_items(future_start, future_end)
@@ -327,7 +329,7 @@ scorecard = pd.DataFrame({
         "→ Already completed something",
         "→ Have future appointment",
         "→ No activity yet",
-        "Scheduled treatment value (next 2 wks)",
+        "Scheduled treatment value (rest of month)",
         "Patients Seen",
         "Completed Appointments",
         "No-shows",
@@ -431,9 +433,85 @@ else:
     st.info("No ledger data.")
 
 # ---------------------------------------------------------------------------
-# 3. Charts
+# 3. Scheduled Treatments (rest of month)
 # ---------------------------------------------------------------------------
-st.subheader("3. Appointment status")
+st.subheader("3. Scheduled Treatments (rest of month)")
+if future_items and not future_df.empty:
+    appt_lookup = {str(row["id"]): row for _, row in future_df.iterrows()}
+    treat_rows = []
+    by_prov = {}
+    by_code = {}
+    patients = set()
+    total_treat = Decimal(0)
+    for item in future_items:
+        appt_id = str((item.get("appointment") or {}).get("id") or "")
+        appt = appt_lookup.get(appt_id)
+        cost = Decimal(str(item.get("amount") or item.get("cost") or 0))
+        if cost == 0:
+            continue
+        total_treat += cost
+        proc_name = (item.get("chargeableItem") or {}).get("name") or ""
+        code = item.get("procedureCode") or "?"
+        date_str = ""
+        patient_id = ""
+        prov_name = "Unknown"
+        if appt is not None:
+            date_str = str(appt.get("startTime") or "")[:16]
+            patient_id = str(appt.get("patientId") or "")
+            prov_name = appt.get("providerName") or "Unknown"
+            if patient_id:
+                patients.add(patient_id)
+        by_prov[prov_name] = by_prov.get(prov_name, Decimal(0)) + cost
+        if code not in by_code:
+            by_code[code] = {"count": 0, "amount": Decimal(0), "name": proc_name}
+        by_code[code]["count"] += 1
+        by_code[code]["amount"] += cost
+        treat_rows.append({
+            "Date": date_str,
+            "Provider": prov_name,
+            "Patient ID": patient_id,
+            "Procedure": proc_name,
+            "Code": code,
+            "Amount": f"${cost:,.2f}",
+        })
+    if treat_rows:
+        st.markdown(f"**{len(patients)} patients** · **{len(treat_rows)} procedures** · **${total_treat:,.2f}** scheduled")
+        # By procedure
+        code_rows = []
+        for code, v in sorted(by_code.items(), key=lambda x: -x[1]["amount"]):
+            code_rows.append({
+                "Code": code,
+                "Procedure": v["name"][:40],
+                "Count": v["count"],
+                "Value": f"${v['amount']:,.2f}",
+            })
+        code_rows.append({"Code": "", "Procedure": "TOTAL", "Count": len(treat_rows), "Value": f"${total_treat:,.2f}"})
+        st.markdown("**By Procedure**")
+        st.dataframe(pd.DataFrame(code_rows), use_container_width=True, hide_index=True, height=min(400, 40 + 35 * len(code_rows)))
+        # By provider
+        prov_rows = []
+        for prov, amt in sorted(by_prov.items(), key=lambda x: -x[1]):
+            pct = float(amt) / float(total_treat) * 100 if total_treat else 0
+            prov_rows.append({"Provider": prov, "Scheduled": f"${amt:,.2f}", "%": f"{pct:.1f}%"})
+        prov_rows.append({"Provider": "TOTAL", "Scheduled": f"${total_treat:,.2f}", "%": "100%"})
+        st.markdown("**By Provider**")
+        st.dataframe(pd.DataFrame(prov_rows), use_container_width=True, hide_index=True, height=min(300, 40 + 35 * len(prov_rows)))
+        # Detail
+        with st.expander("Detail by appointment"):
+            treat_rows.append({
+                "Date": "", "Provider": "", "Patient ID": "",
+                "Procedure": "TOTAL", "Code": "", "Amount": f"${total_treat:,.2f}",
+            })
+            st.dataframe(pd.DataFrame(treat_rows), use_container_width=True, hide_index=True, height=400)
+    else:
+        st.info("No scheduled treatments with cost for the rest of the month.")
+else:
+    st.info("No future appointment data.")
+
+# ---------------------------------------------------------------------------
+# 4. Charts
+# ---------------------------------------------------------------------------
+st.subheader("4. Appointment status")
 left, right = st.columns(2)
 with left:
     if not df.empty:
@@ -450,17 +528,8 @@ with right:
         st.plotly_chart(fig2, use_container_width=True)
 
 # ---------------------------------------------------------------------------
-# 4. Appointment list
+# Practice details
 # ---------------------------------------------------------------------------
-st.subheader("4. Appointment list")
-if not df.empty:
-    show = df[
-        ["startTime", "status", "providerName", "operatoryId", "patientId", "length_min", "description", "confirmation"]
-    ].copy()
-    show = show.sort_values("startTime", ascending=False)
-    show.columns = ["Start", "Status", "Provider", "Operatory", "Patient ID", "Length (min)", "Notes", "Confirmation"]
-    st.dataframe(show, use_container_width=True, height=400)
-
 with st.expander("Practice & staff details"):
     col_a, col_b = st.columns(2)
     with col_a:
