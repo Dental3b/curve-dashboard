@@ -17,7 +17,7 @@ TOKEN_URL = "https://sso.curvehero.com/connect/token"
 DEFAULT_SCOPES = (
     "appointment:read patient:read clinic:read staff:read schedule:read "
     "appointment_tag:read chargeable_item:read insurance:read "
-    "ledger_entry:read accounts_receivable.all:read"
+    "ledger_entry:read accounts_receivable.all:read appointment.items:read"
 )
 
 
@@ -85,8 +85,10 @@ class CurveAPI:
         resp.raise_for_status()
         return resp.json()
 
-    def get_ledger_entries(self, start_date: str, end_date: str, max_pages: int = 5) -> list[dict]:
-        """Fetch ledger entries (production, payments, invoices including $49 fees)."""
+    def get_ledger_entries(self, start_date: str, end_date: str, max_pages: int = 10) -> list[dict]:
+        """Fetch ledger entries (production, payments, invoices including $49 fees).
+        endDate is exclusive per Curve API docs, so caller should pass day after desired end.
+        """
         params = {"startDate": start_date, "endDate": end_date}
         objects: list = []
         data = self._get("ledger_entry", params, cheetah=True)
@@ -95,10 +97,13 @@ class CurveAPI:
         while data.get("meta", {}).get("next") and page < max_pages:
             page += 1
             next_path = data["meta"]["next"]
+            # next is typically /cheetah/ledger_entry?state=...
             if next_path.startswith("/cheetah/"):
                 next_path = next_path[len("/cheetah/"):]
             elif next_path.startswith("cheetah/"):
                 next_path = next_path[len("cheetah/"):]
+            elif next_path.startswith("/"):
+                next_path = next_path.lstrip("/")
             data = self._get(next_path, cheetah=True)
             objects.extend(data.get("objects") or [])
         return objects
@@ -179,12 +184,9 @@ class CurveAPI:
 
     def get_appointment_items(self, start_date: str, end_date: str) -> list[dict]:
         """Future (or any) appointment procedures with cost."""
-        try:
-            data = self._get(
-                "appointment_items",
-                params={"startDate": start_date, "endDate": end_date},
-                cheetah=True,
-            )
-            return data.get("objects") or []
-        except Exception:
-            return []
+        data = self._get(
+            "appointment_items",
+            params={"startDate": start_date, "endDate": end_date},
+            cheetah=True,
+        )
+        return data.get("objects") or []
