@@ -383,6 +383,7 @@ fin_scorecard = pd.DataFrame({
         "Production / Day",
         "Production / Patient",
         "Days in range",
+        "Month projection",
     ],
     curr_label: [
         f"${production:,.2f}",
@@ -390,6 +391,7 @@ fin_scorecard = pd.DataFrame({
         f"${prod_per_day:,.2f}",
         f"${prod_per_patient:,.2f}",
         str(days_in_range),
+        f"${payments + scheduled_total:,.2f}",
     ],
     prev_label: [
         f"${prev_production:,.2f}",
@@ -397,9 +399,11 @@ fin_scorecard = pd.DataFrame({
         f"${prev_prod_day:,.2f}",
         f"${prev_prod_pat:,.2f}",
         str(prev_days),
+        "—",
     ],
 })
-st.dataframe(fin_scorecard, use_container_width=True, hide_index=True, height=220)
+st.dataframe(fin_scorecard, use_container_width=True, hide_index=True, height=250)
+st.caption("Month projection = Collections + scheduled treatments (rest of month)")
 
 # ---------------------------------------------------------------------------
 # 2. Treatment Plans (new patients)
