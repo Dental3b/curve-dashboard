@@ -348,7 +348,6 @@ scorecard = pd.DataFrame({
         pct(len(completed_only)),
         pct(len(future_only)),
         pct(len(no_activity_np)),
-        f"${future_np_value:,.2f}",
         str(unique_patients),
         str(completed),
         f"{noshow} ({noshow_rate:.1f}%)",
