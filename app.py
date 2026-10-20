@@ -518,6 +518,7 @@ else:
 # 4. Treatment Plans (new patients)
 # ---------------------------------------------------------------------------
 st.subheader("4. Treatment Plans (new patients)")
+st.caption(f"Plans loaded: {len(treatment_plans) if treatment_plans else 0} · New patients: {len(np_patients)}")
 if treatment_plans and np_patients:
     month_prefix = start_date.strftime("%Y-%m")
     patients_with_plan = set()

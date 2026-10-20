@@ -205,8 +205,7 @@ class CurveAPI:
         page = 0
         while url and page < max_pages:
             resp = requests.get(url, headers=self._headers(), timeout=60)
-            if not resp.ok:
-                break
+            resp.raise_for_status()
             data = resp.json()
             objects.extend(data.get("objects") or [])
             next_path = data.get("meta", {}).get("next")
