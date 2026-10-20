@@ -188,9 +188,8 @@ try:
     prev_appts = load_appointments(prev_month_start.isoformat(), prev_end_date.isoformat())
     prev_df = appts_to_df(prev_appts)
     prev_ledger = load_ledger(prev_month_start.isoformat(), prev_end_date.isoformat())
-    # Full previous month for closing
-    prev_month_end_full = prev_month_start.replace(day=1) + timedelta(days=32)
-    prev_month_end_full = prev_month_end_full.replace(day=1)
+    # Full previous month for closing (end of previous month + 1 day for exclusive endDate)
+    prev_month_end_full = (prev_month_start + timedelta(days=32)).replace(day=1)
     prev_full_ledger = load_ledger(prev_month_start.isoformat(), prev_month_end_full.isoformat())
 except Exception as e:
     st.error(f"Could not load data from Curve API: {e}")
