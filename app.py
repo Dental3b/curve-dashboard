@@ -188,6 +188,10 @@ try:
     prev_appts = load_appointments(prev_month_start.isoformat(), prev_end_date.isoformat())
     prev_df = appts_to_df(prev_appts)
     prev_ledger = load_ledger(prev_month_start.isoformat(), prev_end_date.isoformat())
+    # Full previous month for closing
+    prev_month_end_full = prev_month_start.replace(day=1) + timedelta(days=32)
+    prev_month_end_full = prev_month_end_full.replace(day=1)
+    prev_full_ledger = load_ledger(prev_month_start.isoformat(), prev_month_end_full.isoformat())
 except Exception as e:
     st.error(f"Could not load data from Curve API: {e}")
     st.info("Check your `.env` credentials (CURVE_CLIENT_ID, CURVE_CLIENT_SECRET, CURVE_INSTANCE).")
@@ -294,11 +298,16 @@ prev_np_patients = set()
 prev_np_with_more = set()
 prev_production = Decimal(0)
 prev_payments = Decimal(0)
+prev_full_payments = Decimal(0)
 if prev_ledger:
     for entry in prev_ledger:
         calc = entry.get("calculations") or {}
         prev_production += Decimal(str(calc.get("production") or 0))
         prev_payments += Decimal(str(calc.get("payments") or 0))
+if prev_full_ledger:
+    for entry in prev_full_ledger:
+        calc = entry.get("calculations") or {}
+        prev_full_payments += Decimal(str(calc.get("payments") or 0))
         if entry.get("transactionType") == "Invoice":
             amt = Decimal(str(entry.get("amount") or 0))
             pid = str(entry.get("patientId") or "")
@@ -399,7 +408,7 @@ fin_scorecard = pd.DataFrame({
         f"${prev_prod_day:,.2f}",
         f"${prev_prod_pat:,.2f}",
         str(prev_days),
-        "—",
+        f"${prev_full_payments:,.2f}",
     ],
 })
 st.dataframe(fin_scorecard, use_container_width=True, hide_index=True, height=250)
