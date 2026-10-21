@@ -624,6 +624,7 @@ if ar_ledger:
         balance = prod - paid
         if balance > 0:
             next_appt = future_appt_by_pat.get(pid, "—")
+            next_sort = future_appt_sort.get(pid, "9999")
             pending_rows.append({
                 "Patient ID": pid,
                 "Name": patient_names.get(pid, ""),
@@ -632,6 +633,7 @@ if ar_ledger:
                 "Balance": f"${balance:,.2f}",
                 "Visits left": future_count_by_pat.get(pid, 0),
                 "Next appointment": next_appt,
+                "_sort": next_sort,
             })
     if pending_rows:
         def sort_key(r):
@@ -640,9 +642,20 @@ if ar_ledger:
                 return ("9999", 0)
             return (appt, -float(r["Balance"].replace("$","").replace(",","")))
         pending_rows.sort(key=sort_key)
-        st.dataframe(pd.DataFrame(pending_rows), use_container_width=True, hide_index=True, height=min(400, 40 + 35 * len(pending_rows)))
+        st.dataframe(
+            pd.DataFrame(pending_rows),
+            use_container_width=True,
+            hide_index=True,
+            height=min(400, 40 + 35 * len(pending_rows)),
+            column_config={
+                "Visits left": st.column_config.NumberColumn("Visits left", width="small"),
+            },
+        )
         total_pending = sum(Decimal(r["Balance"].replace("$","").replace(",","")) for r in pending_rows)
+        no_appt = [r for r in pending_rows if r.get("Visits left", 0) == 0]
+        no_appt_total = sum(Decimal(r["Balance"].replace("$","").replace(",","")) for r in no_appt)
         st.caption(f"{len(pending_rows)} patients · ${total_pending:,.2f} pending")
+        st.caption(f"No appointment: {len(no_appt)} patients · ${no_appt_total:,.2f} pending")
     else:
         st.info("No pending balances in this date range.")
 else:
