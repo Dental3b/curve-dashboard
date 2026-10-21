@@ -549,5 +549,67 @@ if future_items:
 else:
     st.info("No future appointment data.")
 
+# ---------------------------------------------------------------------------
+# 5. Accounts Receivable
+# ---------------------------------------------------------------------------
+st.subheader("5. Accounts Receivable")
+# Load full month ledger for AR
+try:
+    month_start = end_date.replace(day=1).isoformat()
+    ar_ledger = load_ledger(month_start, end_date.isoformat())
+except Exception:
+    ar_ledger = ledger
+if ar_ledger:
+    from collections import defaultdict
+    prod_by_pat = defaultdict(lambda: Decimal(0))
+    paid_by_pat = defaultdict(lambda: Decimal(0))
+    for e in ar_ledger:
+        pid = str(e.get("patientId") or "")
+        if not pid:
+            continue
+        calc = e.get("calculations") or {}
+        prod_by_pat[pid] += Decimal(str(calc.get("production") or 0))
+        paid_by_pat[pid] += Decimal(str(calc.get("payments") or 0))
+    # Future appointments lookup (next 30 days)
+    future_appt_by_pat = {}
+    future_count_by_pat = {}
+    if not next_30_df.empty:
+        for _, row in next_30_df.iterrows():
+            pid = str(row.get("patientId") or "")
+            if pid:
+                if pid not in future_appt_by_pat:
+                    future_appt_by_pat[pid] = str(row.get("startTime") or "")[:16]
+                future_count_by_pat[pid] = future_count_by_pat.get(pid, 0) + 1
+    # Past appointments count (from current range)
+    past_count_by_pat = {}
+    if not df.empty:
+        for _, row in df.iterrows():
+            pid = str(row.get("patientId") or "")
+            if pid and row.get("bucket") == "Completed":
+                past_count_by_pat[pid] = past_count_by_pat.get(pid, 0) + 1
+    pending_rows = []
+    for pid in set(prod_by_pat.keys()) | set(paid_by_pat.keys()):
+        prod = prod_by_pat[pid]
+        paid = paid_by_pat[pid]
+        balance = prod - paid
+        if balance > 0:
+            next_appt = future_appt_by_pat.get(pid, "—")
+            pending_rows.append({
+                "Patient ID": pid,
+                "Production": f"${prod:,.2f}",
+                "Paid": f"${paid:,.2f}",
+                "Balance": f"${balance:,.2f}",
+                "Next appointment": next_appt,
+            })
+    if pending_rows:
+        pending_rows.sort(key=lambda x: -float(x["Balance"].replace("$","").replace(",","")))
+        st.dataframe(pd.DataFrame(pending_rows), use_container_width=True, hide_index=True, height=min(400, 40 + 35 * len(pending_rows)))
+        total_pending = sum(Decimal(r["Balance"].replace("$","").replace(",","")) for r in pending_rows)
+        st.caption(f"{len(pending_rows)} patients · ${total_pending:,.2f} pending")
+    else:
+        st.info("No pending balances in this date range.")
+else:
+    st.info("No ledger data.")
+
 st.markdown("---")
 st.caption("Data from Curve Hero API. Production and payments from ledger entries. $49 = new patient fee invoices.")
