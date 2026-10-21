@@ -585,7 +585,21 @@ if ar_ledger:
             pid = str(row.get("patientId") or "")
             if pid:
                 if pid not in future_appt_by_pat:
-                    future_appt_by_pat[pid] = str(row.get("startTime") or "")[:16]
+                    dt_str = str(row.get("startTime") or "")
+                    if dt_str and len(dt_str) >= 16:
+                        try:
+                            from datetime import datetime as dt
+                            dt_obj = dt.strptime(dt_str[:16], "%Y-%m-%d %H:%M")
+                            hour = dt_obj.hour
+                            ampm = "am" if hour < 12 else "pm"
+                            hour_12 = hour if hour <= 12 else hour - 12
+                            if hour_12 == 0:
+                                hour_12 = 12
+                            future_appt_by_pat[pid] = dt_obj.strftime(f"%B %d {hour_12}{ampm}")
+                        except Exception:
+                            future_appt_by_pat[pid] = dt_str[:16]
+                    else:
+                        future_appt_by_pat[pid] = "—"
                 future_count_by_pat[pid] = future_count_by_pat.get(pid, 0) + 1
     # Past appointments count (from current range)
     past_count_by_pat = {}
@@ -595,6 +609,15 @@ if ar_ledger:
             if pid and row.get("bucket") == "Completed":
                 past_count_by_pat[pid] = past_count_by_pat.get(pid, 0) + 1
     pending_rows = []
+    # Get patient names
+    patient_names = {}
+    for pid in set(prod_by_pat.keys()) | set(paid_by_pat.keys()):
+        if prod_by_pat[pid] - paid_by_pat[pid] > 0:
+            try:
+                p = get_api()._get(f"patient/{pid}", cheetah=True)
+                patient_names[pid] = f"{p.get('firstName','')} {p.get('lastName','')}".strip()
+            except Exception:
+                patient_names[pid] = ""
     for pid in set(prod_by_pat.keys()) | set(paid_by_pat.keys()):
         prod = prod_by_pat[pid]
         paid = paid_by_pat[pid]
