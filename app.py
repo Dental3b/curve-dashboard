@@ -563,6 +563,7 @@ if ar_ledger:
     from collections import defaultdict
     prod_by_pat = defaultdict(lambda: Decimal(0))
     paid_by_pat = defaultdict(lambda: Decimal(0))
+    adj_by_pat = defaultdict(lambda: Decimal(0))
     for e in ar_ledger:
         pid = str(e.get("patientId") or "")
         if not pid:
@@ -570,6 +571,8 @@ if ar_ledger:
         calc = e.get("calculations") or {}
         prod_by_pat[pid] += Decimal(str(calc.get("production") or 0))
         paid_by_pat[pid] += Decimal(str(calc.get("payments") or 0))
+        if e.get("transactionType") == "Adjustment":
+            adj_by_pat[pid] += abs(Decimal(str(e.get("amount") or 0)))
     # Appointments in next 30 days
     try:
         next_30_end = (end_date + timedelta(days=30)).isoformat()
@@ -624,7 +627,8 @@ if ar_ledger:
     for pid in set(prod_by_pat.keys()) | set(paid_by_pat.keys()):
         prod = prod_by_pat[pid]
         paid = paid_by_pat[pid]
-        balance = prod - paid
+        adj = adj_by_pat.get(pid, Decimal(0))
+        balance = prod - paid - adj
         if balance > 0:
             next_appt = future_appt_by_pat.get(pid, "—")
             next_sort = future_appt_sort.get(pid, "9999")
@@ -633,6 +637,7 @@ if ar_ledger:
                 "Name": patient_names.get(pid, ""),
                 "Production": f"${prod:,.2f}",
                 "Paid": f"${paid:,.2f}",
+                "Adj": f"${adj:,.2f}",
                 "Balance": f"${balance:,.2f}",
                 "Visits left": str(future_count_by_pat.get(pid, 0)),
                 "Next appointment": next_appt,
@@ -659,6 +664,9 @@ if ar_ledger:
         st.caption(f"With appointments: {len(with_appt)} patients · ${with_appt_total:,.2f}")
         st.caption(f"No appointment: {len(no_appt)} patients · ${no_appt_total:,.2f}")
         st.caption(f"Total: {len(pending_rows)} patients · ${total_pending:,.2f} pending")
+        total_adj = sum(adj_by_pat.values())
+        adj_patients = len([p for p in adj_by_pat if adj_by_pat[p] > 0])
+        st.caption(f"Write-offs (this month): {adj_patients} patients · ${total_adj:,.2f}")
         # Pie chart
         if with_appt_total > 0 or no_appt_total > 0:
             import plotly.express as px
