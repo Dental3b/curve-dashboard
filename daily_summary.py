@@ -106,4 +106,3 @@ Patients seen: {patients_seen}"""
 
 if __name__ == "__main__":
     main()
-
