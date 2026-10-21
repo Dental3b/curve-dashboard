@@ -63,7 +63,7 @@ def get_today_data(token):
     print(f"Appointments today: {len(appts)}")
     for a in appts:
         print(f"  - {a.get('appointmentStatus')}")
-    pending = [a for a in appts if a.get("appointmentStatus") not in ("Check Out", "Missed", "Cancel", "Cancelled")]
+    pending = [a for a in appts if a.get("appointmentStatus") not in ("Check Out", "Missed", "Cancel", "Cancelled", "Left Message")]
     all_done = len(pending) == 0 and len(appts) > 0
     
     return production, collections, all_done, len(patients), len(appts), len(pending)
