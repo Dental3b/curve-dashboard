@@ -661,14 +661,26 @@ if ar_ledger:
         no_appt_total = sum(Decimal(r["Balance"].replace("$","").replace(",","")) for r in no_appt)
         with_appt = [r for r in pending_rows if r.get("Visits left", "0") != "0"]
         with_appt_total = sum(Decimal(r["Balance"].replace("$","").replace(",","")) for r in with_appt)
-        st.caption(f"With appointments: {len(with_appt)} patients · ${with_appt_total:,.2f}")
-        st.caption(f"No appointment: {len(no_appt)} patients · ${no_appt_total:,.2f}")
-        st.caption(f"Total: {len(pending_rows)} patients · ${total_pending:,.2f} pending")
-        total_adj = sum(adj_by_pat.values())
-        adj_patients = len([p for p in adj_by_pat if adj_by_pat[p] > 0])
-        total_prod = sum(prod_by_pat.values())
-        adj_pct = float(total_adj) / float(total_prod) * 100 if total_prod else 0
-        st.caption(f"Write-offs (this month): {adj_patients} patients · ${total_adj:,.2f} ({adj_pct:.1f}%)")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.caption(f"With appointments: {len(with_appt)} patients · ${with_appt_total:,.2f}")
+            st.caption(f"No appointment: {len(no_appt)} patients · ${no_appt_total:,.2f}")
+            st.caption(f"**Total: {len(pending_rows)} patients · ${total_pending:,.2f}**")
+        with col2:
+            from collections import Counter
+            adj_types = Counter()
+            adj_type_amt = {}
+            for e in ar_ledger:
+                if e.get("transactionType") == "Adjustment":
+                    t = e.get("adjustmentType") or "Other"
+                    adj_types[t] += 1
+                    adj_type_amt[t] = adj_type_amt.get(t, Decimal(0)) + abs(Decimal(str(e.get("amount") or 0)))
+            total_adj = sum(adj_type_amt.values())
+            total_prod = sum(prod_by_pat.values())
+            adj_pct = float(total_adj) / float(total_prod) * 100 if total_prod else 0
+            for t, cnt in adj_types.most_common():
+                st.caption(f"{t}: {cnt} · ${adj_type_amt[t]:,.0f}")
+            st.caption(f"**Write-offs: {sum(adj_types.values())} · ${total_adj:,.2f} ({adj_pct:.1f}%)**")
         # Pie chart
         if with_appt_total > 0 or no_appt_total > 0:
             import plotly.express as px
