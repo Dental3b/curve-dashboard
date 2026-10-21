@@ -570,6 +570,13 @@ if ar_ledger:
         calc = e.get("calculations") or {}
         prod_by_pat[pid] += Decimal(str(calc.get("production") or 0))
         paid_by_pat[pid] += Decimal(str(calc.get("payments") or 0))
+    # Appointments in next 30 days
+    try:
+        next_30_end = (end_date + timedelta(days=30)).isoformat()
+        next_30_appts = load_appointments((end_date + timedelta(days=1)).isoformat(), next_30_end)
+        next_30_df = appts_to_df(next_30_appts)
+    except Exception:
+        next_30_df = pd.DataFrame()
     # Future appointments lookup (next 30 days)
     future_appt_by_pat = {}
     future_count_by_pat = {}
@@ -602,7 +609,12 @@ if ar_ledger:
                 "Next appointment": next_appt,
             })
     if pending_rows:
-        pending_rows.sort(key=lambda x: -float(x["Balance"].replace("$","").replace(",","")))
+        def sort_key(r):
+            appt = r.get("Next appointment", "—")
+            if appt == "—":
+                return ("9999", 0)
+            return (appt, -float(r["Balance"].replace("$","").replace(",","")))
+        pending_rows.sort(key=sort_key)
         st.dataframe(pd.DataFrame(pending_rows), use_container_width=True, hide_index=True, height=min(400, 40 + 35 * len(pending_rows)))
         total_pending = sum(Decimal(r["Balance"].replace("$","").replace(",","")) for r in pending_rows)
         st.caption(f"{len(pending_rows)} patients · ${total_pending:,.2f} pending")
