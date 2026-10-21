@@ -634,7 +634,7 @@ if ar_ledger:
                 "Production": f"${prod:,.2f}",
                 "Paid": f"${paid:,.2f}",
                 "Balance": f"${balance:,.2f}",
-                "Visits left": future_count_by_pat.get(pid, 0),
+                "Visits left": str(future_count_by_pat.get(pid, 0)),
                 "Next appointment": next_appt,
                 "_sort": next_sort,
             })
@@ -648,17 +648,13 @@ if ar_ledger:
             hide_index=True,
             height=min(400, 40 + 35 * len(pending_rows)),
             column_config={
-                "Visits left": st.column_config.NumberColumn(
-                    "Visits left",
-                    width="small",
-                    format="%d",
-                ),
+                "Visits left": st.column_config.TextColumn("Left", width="small"),
             },
         )
         total_pending = sum(Decimal(r["Balance"].replace("$","").replace(",","")) for r in pending_rows)
-        no_appt = [r for r in pending_rows if r.get("Visits left", 0) == 0]
+        no_appt = [r for r in pending_rows if r.get("Visits left", "0") == "0"]
         no_appt_total = sum(Decimal(r["Balance"].replace("$","").replace(",","")) for r in no_appt)
-        with_appt = [r for r in pending_rows if r.get("Visits left", 0) > 0]
+        with_appt = [r for r in pending_rows if r.get("Visits left", "0") != "0"]
         with_appt_total = sum(Decimal(r["Balance"].replace("$","").replace(",","")) for r in with_appt)
         st.caption(f"With appointments: {len(with_appt)} patients · ${with_appt_total:,.2f}")
         st.caption(f"No appointment: {len(no_appt)} patients · ${no_appt_total:,.2f}")
@@ -672,6 +668,7 @@ if ar_ledger:
             })
             fig = px.pie(pie_df, values="Amount", names="Category", 
                          color_discrete_sequence=["#2ecc71", "#e74c3c"])
+            fig.update_traces(texttemplate="$%{value:,.0f}<br>%{percent}")
             fig.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=250, showlegend=True)
             st.plotly_chart(fig, use_container_width=True)
     else:
