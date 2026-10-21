@@ -579,6 +579,7 @@ if ar_ledger:
         next_30_df = pd.DataFrame()
     # Future appointments lookup (next 30 days)
     future_appt_by_pat = {}
+    future_appt_sort = {}
     future_count_by_pat = {}
     if not next_30_df.empty:
         for _, row in next_30_df.iterrows():
@@ -596,8 +597,10 @@ if ar_ledger:
                             if hour_12 == 0:
                                 hour_12 = 12
                             future_appt_by_pat[pid] = dt_obj.strftime(f"%a %b %d, {hour_12}{ampm}")
+                            future_appt_sort[pid] = dt_str[:16]
                         except Exception:
                             future_appt_by_pat[pid] = dt_str[:16]
+                            future_appt_sort[pid] = dt_str[:16]
                     else:
                         future_appt_by_pat[pid] = "—"
                 future_count_by_pat[pid] = future_count_by_pat.get(pid, 0) + 1
@@ -636,12 +639,9 @@ if ar_ledger:
                 "_sort": next_sort,
             })
     if pending_rows:
-        def sort_key(r):
-            appt = r.get("Next appointment", "—")
-            if appt == "—":
-                return ("9999", 0)
-            return (appt, -float(r["Balance"].replace("$","").replace(",","")))
-        pending_rows.sort(key=sort_key)
+        pending_rows.sort(key=lambda r: r.get("_sort", "9999"))
+        for r in pending_rows:
+            del r["_sort"]
         st.dataframe(
             pd.DataFrame(pending_rows),
             use_container_width=True,
