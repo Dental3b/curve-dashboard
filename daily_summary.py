@@ -54,10 +54,13 @@ def get_today_data(token):
         timeout=30
     )
     appts = r2.json().get("objects", []) if r2.ok else []
+    print(f"Appointments today: {len(appts)}")
+    for a in appts:
+        print(f"  - {a.get('appointmentStatus')}")
     pending = [a for a in appts if a.get("appointmentStatus") not in ("Check Out", "Missed", "Cancel", "Cancelled")]
     all_done = len(pending) == 0 and len(appts) > 0
     
-    return production, collections, all_done, len(patients)
+    return production, collections, all_done, len(patients), len(appts), len(pending)
 
 def send_whatsapp(message):
     requests.post(
@@ -81,11 +84,19 @@ def main():
         print("Failed to get Curve token")
         return
     
-    production, collections, all_done, patients_seen = get_today_data(token)
+    production, collections, all_done, patients_seen, total_appts, pending_count = get_today_data(token)
     
-    if not all_done:
-        print("Not all patients checked out yet")
-        return
+    print(f"Production: {production}")
+    print(f"Collections: {collections}")
+    print(f"Patients seen: {patients_seen}")
+    print(f"Total appointments: {total_appts}")
+    print(f"Pending: {pending_count}")
+    print(f"All done: {all_done}")
+    
+    # Send summary anyway (for testing)
+    # if not all_done:
+    #     print("Not all patients checked out yet")
+    #     return
     
     ratio = float(collections) / float(production) * 100 if production else 0
     today_str = datetime.now().strftime("%d %b %Y")
