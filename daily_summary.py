@@ -7,6 +7,12 @@ import os
 import requests
 from datetime import datetime, timedelta
 from decimal import Decimal
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo
+
+EASTERN = ZoneInfo("America/New_York")
 
 # Config from environment
 CURVE_CLIENT_ID = os.environ.get("CURVE_CLIENT_ID")
@@ -32,8 +38,8 @@ def get_curve_token():
 
 def get_today_data(token):
     h = {"Authorization": f"Bearer {token}"}
-    today = datetime.now().strftime("%Y-%m-%d")
-    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    today = datetime.now(EASTERN).strftime("%Y-%m-%d")
+    tomorrow = (datetime.now(EASTERN) + timedelta(days=1)).strftime("%Y-%m-%d")
     
     # Ledger
     r = requests.get(
@@ -72,7 +78,7 @@ def send_whatsapp(message):
 def main():
     # Check if already sent today
     flag_file = "/tmp/summary_sent_today"
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(EASTERN).strftime("%Y-%m-%d")
     if os.path.exists(flag_file):
         with open(flag_file) as f:
             if f.read().strip() == today:
@@ -99,7 +105,7 @@ def main():
     #     return
     
     ratio = float(collections) / float(production) * 100 if production else 0
-    today_str = datetime.now().strftime("%d %b %Y")
+    today_str = datetime.now(EASTERN).strftime("%d %b %Y")
     
     message = f"""🦷 Dental 3B - Resumen del día
 📅 {today_str}
