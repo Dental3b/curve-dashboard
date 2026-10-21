@@ -666,7 +666,9 @@ if ar_ledger:
         st.caption(f"Total: {len(pending_rows)} patients · ${total_pending:,.2f} pending")
         total_adj = sum(adj_by_pat.values())
         adj_patients = len([p for p in adj_by_pat if adj_by_pat[p] > 0])
-        st.caption(f"Write-offs (this month): {adj_patients} patients · ${total_adj:,.2f}")
+        total_prod = sum(prod_by_pat.values())
+        adj_pct = float(total_adj) / float(total_prod) * 100 if total_prod else 0
+        st.caption(f"Write-offs (this month): {adj_patients} patients · ${total_adj:,.2f} ({adj_pct:.1f}%)")
         # Pie chart
         if with_appt_total > 0 or no_appt_total > 0:
             import plotly.express as px
