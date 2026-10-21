@@ -595,7 +595,7 @@ if ar_ledger:
                             hour_12 = hour if hour <= 12 else hour - 12
                             if hour_12 == 0:
                                 hour_12 = 12
-                            future_appt_by_pat[pid] = dt_obj.strftime(f"%B %d {hour_12}{ampm}")
+                            future_appt_by_pat[pid] = dt_obj.strftime(f"%a %b %d, {hour_12}{ampm}")
                         except Exception:
                             future_appt_by_pat[pid] = dt_str[:16]
                     else:
@@ -626,9 +626,11 @@ if ar_ledger:
             next_appt = future_appt_by_pat.get(pid, "—")
             pending_rows.append({
                 "Patient ID": pid,
+                "Name": patient_names.get(pid, ""),
                 "Production": f"${prod:,.2f}",
                 "Paid": f"${paid:,.2f}",
                 "Balance": f"${balance:,.2f}",
+                "Visits left": future_count_by_pat.get(pid, 0),
                 "Next appointment": next_appt,
             })
     if pending_rows:
