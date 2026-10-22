@@ -50,7 +50,14 @@ def get_today_data(token):
     
     production = sum(Decimal(str((e.get("calculations") or {}).get("production") or 0)) for e in ledger)
     collections = sum(Decimal(str((e.get("calculations") or {}).get("payments") or 0)) for e in ledger)
-    patients = set(str(e.get("patientId")) for e in ledger if e.get("patientId"))
+    patients = set()
+    for e in ledger:
+        pid = str(e.get("patientId") or "")
+        if not pid:
+            continue
+        calc = e.get("calculations") or {}
+        if Decimal(str(calc.get("production") or 0)) > 0:
+            patients.add(pid)
     
     # Appointments - check if all are checked out
     r2 = requests.get(
