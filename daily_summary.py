@@ -106,10 +106,10 @@ def main():
     print(f"Pending: {pending_count}")
     print(f"All done: {all_done}")
     
-    # Send summary anyway (for testing)
-    # if not all_done:
-    #     print("Not all patients checked out yet")
-    #     return
+    # Send if there's production, even if no appointments in API
+    if production <= 0:
+        print("No production today")
+        return
     
     ratio = float(collections) / float(production) * 100 if production else 0
     today_str = datetime.now(EASTERN).strftime("%d %b %Y")
