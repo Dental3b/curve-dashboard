@@ -1,0 +1,59 @@
+name: Verify Curve and Meta connections
+
+on:
+  push:
+    branches: [codex/restore-meta-daily-summary]
+    paths: [.github/workflows/verify_connections.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify Meta token and existing PDR number (read only)
+        env:
+          WHATSAPP_TOKEN: ${{ secrets.WHATSAPP_TOKEN }}
+        run: |
+          python - <<'PY'
+          import re
+          import sys
+          from daily_summary import request_json, required
+          try:
+              token = required('WHATSAPP_TOKEN')
+              data = request_json('Meta connection check', 'GET',
+                  'https://graph.facebook.com/v23.0/1297938553410334?fields=id,display_phone_number',
+                  headers={'Authorization': f'Bearer {token}'})
+              if re.sub(r'\D', '', str(data.get('display_phone_number', ''))) != '14706195333':
+                  raise RuntimeError('Meta returned a different phone number; stop configuration')
+              print('PASS: GitHub secret is present; Meta accepted it for the expected PDR number.')
+              print('Read-only verification: no WhatsApp message was sent.')
+          except Exception as error:
+              print(str(error) if isinstance(error, RuntimeError) else type(error).__name__)
+              sys.exit(1)
+          PY
+      - name: Verify Curve authentication and report retrieval (read only)
+        if: ${{ !cancelled() }}
+        env:
+          CURVE_CLIENT_ID: ${{ secrets.CURVE_CLIENT_ID }}
+          CURVE_CLIENT_SECRET: ${{ secrets.CURVE_CLIENT_SECRET }}
+        run: |
+          python - <<'PY'
+          import sys
+          from datetime import date
+          from daily_summary import get_summary
+          try:
+              summary = get_summary(date(2026, 10, 23))
+              print('PASS: Curve authentication, ledger pagination and appointment retrieval succeeded.')
+              print('No patient records or financial totals are printed in public workflow logs.')
+          except Exception as error:
+              print(str(error) if isinstance(error, RuntimeError) else type(error).__name__)
+              sys.exit(1)
+          PY
