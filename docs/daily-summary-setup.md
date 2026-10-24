@@ -4,7 +4,7 @@ Este cambio recupera el programa Python reemplazado accidentalmente por YAML y p
 
 ## Configuración pendiente antes de activar
 
-El propietario comunicó que la plantilla ya está aprobada el 23 de octubre de 2026 (America/New_York). Falta verificar el código de idioma exacto y completar las variables de GitHub antes del primer envío. La prueba permanece pausada por solicitud del propietario; este estado no habilita envíos.
+El propietario comunicó que la plantilla ya está aprobada el 23 de octubre de 2026 (America/New_York). Falta verificar el código de idioma exacto y completar las variables de GitHub antes del primer envío. El propietario retomó la prueba y pidió recibirla en el número API de PDR. Ese destino está bloqueado: Meta documenta como no compatibles los mensajes enviados mediante API a otro número ya registrado en la API. Un segundo emisor API no resuelve esta limitación. Pendiente de acordar un destinatario compatible; no registrar ni migrar números para intentar resolverlo y no activar envíos.
 
 Plantilla creada en Meta WhatsApp Manager, dentro de la misma cuenta que contiene el número registrado de PDR:
 
@@ -43,6 +43,8 @@ La configuración PDR está en su Secret Manager de Google Cloud. El secret `WHA
 Verificación real del 24 de octubre de 2026 (UTC): [ejecución 40054517313](https://github.com/Dental3b/curve-dashboard/actions/runs/40054517313) confirmó que GitHub tiene el secreto, Meta lo acepta para el número esperado y Curve permite recuperar ledger y citas. Los logs solo muestran éxito o errores sanitizados, sin totales financieros ni pacientes. Esto verifica acceso actual; no garantiza vigencia indefinida del token ni entrega de mensajes. La aprobación fue comunicada posteriormente por el propietario; el código de idioma sigue pendiente de verificar. No se envió WhatsApp.
 
 ## Verificación y activación
+
+Antes de activar, resolver el destinatario conforme a la [referencia oficial de mensajes no compatibles de Meta](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/unsupported). El número API de PDR conserva su registro y automatizaciones. La comprobación de GitHub [40057058534](https://github.com/Dental3b/curve-dashboard/actions/runs/40057058534) detectó que faltan `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TO`, `WHATSAPP_TEMPLATE_NAME` y `WHATSAPP_TEMPLATE_LANGUAGE`. Ninguna prueba ha enviado mensajes.
 
 1. Integrar este cambio y ejecutar **Actions → Daily Summary → Run workflow** con `send` desmarcado y `report_date` en `2026-10-23`. La vista previa solo consulta Curve; no escribe estado ni envía WhatsApp. Comparar los totales con Curve.
 2. Una vez aprobada la plantilla y configurado el token, establecer `DAILY_SUMMARY_ENABLED=true`.
