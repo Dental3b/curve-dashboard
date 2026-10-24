@@ -1,9 +1,15 @@
 name: Daily Summary
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - daily_summary.py
+      - monitor_daily_summary.py
+      - .github/workflows/daily_summary.yml
   schedule:
-    # Check throughout every local day, including early closes and weekend visits.
-    # Offset from the top of the hour; GitHub may still delay scheduled runs.
+    # Keep a successor queued while the active job polls internally for 5.5 hours.
+    # GitHub may delay cron events; the active monitor does not depend on them.
     - cron: '2-59/5 * * * *'
   workflow_dispatch:
     inputs:
@@ -30,7 +36,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && !inputs.send) ||
       (github.ref == 'refs/heads/main' && (vars.DAILY_SUMMARY_ENABLED || 'true') == 'true')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 345
     permissions:
       contents: write
     steps:
@@ -41,8 +47,12 @@ jobs:
       - name: Run daily summary
         shell: bash
         run: |
+          if [[ "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "push" ]]; then
+            python -u monitor_daily_summary.py --send
+            exit 0
+          fi
           args=()
-          if [[ "$EVENT_NAME" == "schedule" || "$SEND_REQUESTED" == "true" ]]; then
+          if [[ "$SEND_REQUESTED" == "true" ]]; then
             args+=(--send)
           fi
           if [[ -n "$REPORT_DATE" ]]; then

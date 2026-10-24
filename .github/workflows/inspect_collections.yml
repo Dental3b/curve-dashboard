@@ -1,0 +1,45 @@
+name: Inspect collection calculation fields
+
+on:
+  push:
+    branches: [codex/continuous-close-monitor]
+    paths: [.github/workflows/inspect_collections.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Inspect calculation schema without financial totals or patient data
+        env:
+          CURVE_CLIENT_ID: ${{ secrets.CURVE_CLIENT_ID }}
+          CURVE_CLIENT_SECRET: ${{ secrets.CURVE_CLIENT_SECRET }}
+        run: |
+          python - <<'PYCODE'
+          from datetime import date, timedelta
+          from decimal import Decimal
+          from daily_summary import curve_token, curve_pages, EASTERN
+          from datetime import datetime
+          day = datetime.now(EASTERN).date()
+          entries = curve_pages('https://dentalthreeb.curvehero.com/cheetah/ledger_entry', curve_token(), {
+              'startDate': day.isoformat(), 'endDate': (day + timedelta(days=1)).isoformat(),
+          })
+          calculations = [e.get('calculations') or {} for e in entries]
+          fields = sorted({k for c in calculations for k in c})
+          print('Calculation field names: ' + ', '.join(fields))
+          def amount(c, field):
+              return Decimal(str(c.get(field) or 0))
+          for field in ('deposits', 'deposit', 'overpayments', 'paymentRefunds', 'creditRefunds', 'refunds', 'totalPayments', 'accountCredit'):
+              exists = any(field in c for c in calculations)
+              nonzero = [c for c in calculations if amount(c, field) != 0]
+              if exists:
+                  print(f'{field}: present=True; nonzero={bool(nonzero)}; all_nonzero_rows_have_zero_payments={bool(nonzero) and all(amount(c, "payments") == 0 for c in nonzero)}')
+          print('Read-only inspection complete; no amounts, patients, credentials or messages were published.')
+          PYCODE
