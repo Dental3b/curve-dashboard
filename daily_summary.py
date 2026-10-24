@@ -59,6 +59,30 @@ def required(name):
     return value
 
 
+def whatsapp_token():
+    """Accept the raw token or the existing Google Secret Manager config envelope."""
+    value = required("WHATSAPP_TOKEN")
+    if value.startswith("{"):
+        try:
+            config = json.loads(value)
+        except ValueError:
+            raise RuntimeError("WHATSAPP_TOKEN: configuration JSON is incomplete") from None
+        value = config.get("WHATSAPP_TOKEN") if isinstance(config, dict) else None
+    elif re.search(r"(?m)^[ \t]*(?:export[ \t]+)?WHATSAPP_TOKEN[ \t]*=", value):
+        # Select this field only; never concatenate other configuration entries.
+        matches = re.findall(r"(?m)^[ \t]*(?:export[ \t]+)?WHATSAPP_TOKEN[ \t]*=([^\r\n]*)$", value)
+        value = matches[0] if len(matches) == 1 else None
+    if not isinstance(value, str) or not value.strip():
+        raise RuntimeError("WHATSAPP_TOKEN: missing token value in saved configuration")
+    value = value.strip()
+    if len(value) >= 2 and value[0] in "\"'" and value[-1] == value[0]:
+        value = value[1:-1]
+    value = "".join(value.split())
+    if not value or not re.fullmatch(r"[A-Za-z0-9._|~+/=-]+", value):
+        raise RuntimeError("WHATSAPP_TOKEN: expected a token, JSON configuration, or WHATSAPP_TOKEN=value")
+    return value
+
+
 def curve_token():
     result = request_json("Curve authentication", "POST", "https://sso.curvehero.com/connect/token", form={
         "grant_type": "client_credentials",
@@ -212,7 +236,7 @@ class MetaSender:
 
     @classmethod
     def from_environment(cls):
-        config = cls(required("WHATSAPP_TOKEN"), required("WHATSAPP_PHONE_NUMBER_ID"),
+        config = cls(whatsapp_token(), required("WHATSAPP_PHONE_NUMBER_ID"),
                      required("WHATSAPP_TO").lstrip("+"), required("WHATSAPP_TEMPLATE_NAME"),
                      os.environ.get("WHATSAPP_TEMPLATE_LANGUAGE") or "es",
                      os.environ.get("WHATSAPP_GRAPH_VERSION") or "v23.0")

@@ -52,6 +52,26 @@ class DailySummaryTests(unittest.TestCase):
     def test_unknown_appointment_status_blocks_close(self):
         self.assertEqual(daily.summarize(DAY, [], [{}]).pending, 1)
 
+    def test_token_reader_accepts_google_cloud_config_without_other_fields(self):
+        value = json.dumps({"WHATSAPP_TOKEN": "EAAexample", "OTHER_SECRET": "do-not-use"}, indent=2)
+        with patch.dict("os.environ", {"WHATSAPP_TOKEN": value}):
+            self.assertEqual(daily.whatsapp_token(), "EAAexample")
+
+    def test_token_reader_accepts_raw_wrapped_and_env_values(self):
+        cases = ["EAAexample", "EAAex\nample", '"EAAexample"',
+                 'WHATSAPP_TOKEN="EAAexample"\nWHATSAPP_PHONE_NUMBER_ID=123',
+                 'WHATSAPP_PHONE_NUMBER_ID=123\nWHATSAPP_TOKEN="EAAexample"']
+        for value in cases:
+            with self.subTest(value=value), patch.dict("os.environ", {"WHATSAPP_TOKEN": value}):
+                self.assertEqual(daily.whatsapp_token(), "EAAexample")
+
+    def test_token_reader_rejects_incomplete_or_missing_config_without_echoing_it(self):
+        for value in ('{"WHATSAPP_TOKEN": "sensitive', '{"OTHER_SECRET":"sensitive"}', 'WHATSAPP_TOKEN: sensitive'):
+            with self.subTest(value=value), patch.dict("os.environ", {"WHATSAPP_TOKEN": value}):
+                with self.assertRaises(RuntimeError) as error:
+                    daily.whatsapp_token()
+                self.assertNotIn("sensitive", str(error.exception))
+
     def test_all_ledger_pages_and_exclusive_end_date(self):
         with patch.object(daily, "curve_token", return_value="test"), patch.object(daily, "request_json", side_effect=[
             {"objects": [{"patientId": 1, "calculations": {"production": "1"}}], "meta": {"next": "/cheetah/ledger_entry?state=2"}},

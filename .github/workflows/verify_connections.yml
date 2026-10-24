@@ -28,13 +28,9 @@ jobs:
           import sys
           from urllib.error import HTTPError, URLError
           from urllib.request import Request, urlopen
-          from daily_summary import required
+          from daily_summary import whatsapp_token
           try:
-              token = required('WHATSAPP_TOKEN')
-              if any(character.isspace() for character in token):
-                  raise RuntimeError('TOKEN_FORMAT: saved value contains internal whitespace or multiple lines')
-              if token.startswith(('{', 'WHATSAPP_TOKEN=', '\"', "'")):
-                  raise RuntimeError('TOKEN_FORMAT: saved value includes configuration text or quotes')
+              token = whatsapp_token()
               request = Request('https://graph.facebook.com/v23.0/1297938553410334?fields=id,display_phone_number',
                   headers={'Authorization': f'Bearer {token}'})
               with urlopen(request, timeout=60) as response:
