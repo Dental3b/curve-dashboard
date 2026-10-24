@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - daily_summary.py
+      - delivery_test.py
       - tests/test_daily_summary.py
+      - tests/test_delivery_test.py
       - .github/workflows/daily_summary.yml
       - .github/workflows/test_daily_summary.yml
   workflow_dispatch:

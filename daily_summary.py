@@ -292,12 +292,13 @@ def process(summary, now, store, sender):
     # Record intent BEFORE POST. An ambiguous network failure must not trigger duplicates.
     store.write({"status": "sending", "started_at": now.isoformat()})
     try:
-        message_id = sender.send(summary)
+        sender.send(summary)
     except ApiError as error:
         if 400 <= error.status < 500 and error.status != 408:
             store.write(record)  # Explicit rejection: permit a later retry after correction.
         raise
-    store.write({"status": "accepted", "message_id": message_id, "accepted_at": now.isoformat()})
+    # Message IDs can encode the recipient; acceptance state is sufficient for deduplication.
+    store.write({"status": "accepted", "accepted_at": now.isoformat()})
     print("Meta accepted the message; delivery confirmation requires the existing WhatsApp webhook")
 
 

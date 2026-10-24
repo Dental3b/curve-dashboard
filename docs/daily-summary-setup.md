@@ -4,7 +4,7 @@ Este cambio recupera el programa Python reemplazado accidentalmente por YAML y p
 
 ## Configuración pendiente antes de activar
 
-El propietario comunicó que la plantilla ya está aprobada el 23 de octubre de 2026 (America/New_York). Falta verificar el código de idioma exacto y completar las variables de GitHub antes del primer envío. El propietario retomó la prueba y pidió recibirla en el número API de PDR. Ese destino está bloqueado: Meta documenta como no compatibles los mensajes enviados mediante API a otro número ya registrado en la API. Un segundo emisor API no resuelve esta limitación. Pendiente de acordar un destinatario compatible; no registrar ni migrar números para intentar resolverlo y no activar envíos.
+El propietario comunicó que la plantilla está aprobada y confirmó el WhatsApp personal como destinatario, con PDR como emisor. No se cambiará ni registrará otro número. La comprobación del 23 de octubre de 2026 (America/New_York) confirmó que las variables de número emisor, destinatario y nombre de plantilla coinciden con la configuración solicitada. `WHATSAPP_TEMPLATE_LANGUAGE` contiene una explicación en lugar del código; debe corregirse antes de enviar. La consulta de metadatos con el token existente no expone el ID de cuenta necesario para consultar el idioma. El envío diario permanece desactivado.
 
 Plantilla creada en Meta WhatsApp Manager, dentro de la misma cuenta que contiene el número registrado de PDR:
 
@@ -44,7 +44,7 @@ Verificación real del 24 de octubre de 2026 (UTC): [ejecución 40054517313](htt
 
 ## Verificación y activación
 
-Antes de activar, resolver el destinatario conforme a la [referencia oficial de mensajes no compatibles de Meta](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/unsupported). El número API de PDR conserva su registro y automatizaciones. La comprobación de GitHub [40057058534](https://github.com/Dental3b/curve-dashboard/actions/runs/40057058534) detectó que faltan `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TO`, `WHATSAPP_TEMPLATE_NAME` y `WHATSAPP_TEMPLATE_LANGUAGE`. Ninguna prueba ha enviado mensajes.
+El destinatario personal ya está confirmado. Corregir primero `WHATSAPP_TEMPLATE_LANGUAGE` usando únicamente el código exacto mostrado en Meta. El script `delivery_test.py` está preparado, pero no se ha publicado un workflow de envío porque la validación del idioma sigue fallando. Una vez corregido y verificado el idioma, se podrá ejecutar una prueba autorizada para enviar el resumen de 2026-10-23 con la fecha marcada `PRUEBA`. Tiene un registro independiente `delivery-test-v1.json`: no altera el estado diario ni habilita envíos recurrentes. Un resultado aceptado o incierto impide repetir el ejemplo. Una respuesta explícita de rechazo permite corregir la configuración y volver a ejecutar el mismo job. Confirmar recepción antes de activar el envío diario.
 
 1. Integrar este cambio y ejecutar **Actions → Daily Summary → Run workflow** con `send` desmarcado y `report_date` en `2026-10-23`. La vista previa solo consulta Curve; no escribe estado ni envía WhatsApp. Comparar los totales con Curve.
 2. Una vez aprobada la plantilla y configurado el token, establecer `DAILY_SUMMARY_ENABLED=true`.
@@ -63,11 +63,11 @@ Antes de activar, resolver el destinatario conforme a la [referencia oficial de 
 
 ## Estado y fallos
 
-Los runners de GitHub son temporales: un archivo en `/tmp` no evita duplicados entre ejecuciones. El nuevo programa guarda una marca por fecha en la rama `daily-summary-state`, con permisos `contents: write` del `GITHUB_TOKEN` de Actions. No necesita otro token de GitHub. Esta rama conserva únicamente fecha, estado, huella de totales y un identificador de mensaje; no guarda pacientes ni credenciales. La rama se crea en el primer envío habilitado.
+Los runners de GitHub son temporales: un archivo en `/tmp` no evita duplicados entre ejecuciones. El nuevo programa guarda una marca por fecha en la rama `daily-summary-state`, con permisos `contents: write` del `GITHUB_TOKEN` de Actions. No necesita otro token de GitHub. Esta rama conserva únicamente fecha, estado y huella de totales; no guarda pacientes ni credenciales. La rama se crea en el primer envío habilitado.
 
 El workflow serializa las ejecuciones y cada escritura verifica el SHA actual. Un fallo al reservar el envío detiene el POST. `accepted` impide repetir la fecha, aunque se vuelva a ejecutar el workflow. `sending` significa que el resultado es incierto o que se interrumpió el programa entre la reserva y la confirmación: no se reintenta automáticamente, para evitar mensajes duplicados. Una respuesta HTTP 4xx explícita (salvo 408) permite volver a intentar tras corregir la causa. Un fallo de red o 5xx conserva el estado incierto.
 
-Para resolver un estado `sending`, comprobar primero el mensaje en Meta o en el destinatario. Si llegó, cambiar el estado a `accepted` conservando el ID conocido. Solo si se confirma que no se envió, cambiarlo a `waiting` en el archivo de esa fecha; el siguiente control vuelve a esperar 15 minutos. No borrar marcas de mensajes aceptados.
+Para resolver un estado `sending`, comprobar primero el mensaje en Meta o en el destinatario. Si llegó, cambiar el estado a `accepted`. Solo si se confirma que no se envió, cambiarlo a `waiting` en el archivo de esa fecha; el siguiente control vuelve a esperar 15 minutos. No borrar marcas de mensajes aceptados.
 
 No se garantiza entrega exactamente una vez: una respuesta perdida después del POST requiere revisión. El programa prioriza no repetir envíos dudosos y muestra fallo en Actions. No registra un mensaje rechazado como exitoso.
 
@@ -77,6 +77,6 @@ No se garantiza entrega exactamente una vez: una respuesta perdida después del 
 python -m unittest discover -s tests -v
 ```
 
-Las 21 pruebas unitarias usan respuestas simuladas: ledger de doble entrada, paginación, fallos parciales, horario de verano, cierre estable, rechazo de Meta, resultados inciertos, escrituras de estado en conflicto y extracción del token desde la configuración de Google Cloud. No usan credenciales ni envían mensajes. El workflow `Verify Curve and Meta connections` realiza por separado consultas de lectura con los secretos guardados; nunca envía WhatsApp. Solo se usa la biblioteca estándar de Python 3.11+.
+Las 27 pruebas unitarias usan respuestas simuladas: ledger de doble entrada, paginación, fallos parciales, horario de verano, cierre estable, rechazo de Meta, resultados inciertos, escrituras de estado en conflicto y extracción del token desde la configuración de Google Cloud y envío de un ejemplo independiente con protección contra duplicados. No usan credenciales ni envían mensajes. El workflow `Verify Curve and Meta connections` realiza por separado consultas de lectura con los secretos guardados; nunca envía WhatsApp. Solo se usa la biblioteca estándar de Python 3.11+.
 
 Referencias: [envío de plantillas de Meta](https://www.postman.com/meta/whatsapp-business-platform/request/o65u5m5/send-message-template-text), [Messages de Meta](https://www.postman.com/meta/whatsapp-business-platform/folder/o48mro7/messages), [GitHub Contents API](https://docs.github.com/en/rest/repos/contents), [programación de Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).

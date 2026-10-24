@@ -196,7 +196,7 @@ class DailySummaryTests(unittest.TestCase):
         sender.send.assert_called_once()
 
     def test_meta_uses_approved_template_and_expected_parameters(self):
-        sender = daily.MetaSender("test", "123", "14049666951", "dental3b_resumen_diario", "es", "v23.0")
+        sender = daily.MetaSender("test", "123", "12025550123", "dental3b_resumen_diario", "es", "v23.0")
         with patch.object(daily, "request_json", return_value={"messages": [{"id": "wamid.example"}]}) as api:
             self.assertEqual(sender.send(report()), "wamid.example")
         payload = api.call_args.kwargs["payload"]
@@ -206,7 +206,7 @@ class DailySummaryTests(unittest.TestCase):
                          ["23 Oct 2026", "3,381", "1,798", "53.2", "9"])
 
     def test_no_message_id_is_not_success(self):
-        sender = daily.MetaSender("test", "123", "14049666951", "daily", "es", "v23.0")
+        sender = daily.MetaSender("test", "123", "12025550123", "daily", "es", "v23.0")
         with patch.object(daily, "request_json", return_value={}):
             with self.assertRaises(RuntimeError):
                 sender.send(report())
