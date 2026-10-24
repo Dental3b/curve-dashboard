@@ -21,7 +21,8 @@ from zoneinfo import ZoneInfo
 
 EASTERN = ZoneInfo("America/New_York")
 STATE_BRANCH = "daily-summary-state"
-TERMINAL_STATUSES = {"check out", "missed", "cancel", "cancelled", "canceled", "left message", "cut"}
+TERMINAL_STATUSES = {"check out", "checkout", "missed", "cancel", "cancelled", "canceled"}
+CLOSE_RULE = "appointments-v1"
 
 
 class ApiError(RuntimeError):
@@ -139,6 +140,7 @@ class Summary:
     patients: int
     appointments: int
     pending: int
+    appointment_fingerprint: str = ""
 
     def parameters(self):
         months = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -147,8 +149,24 @@ class Summary:
                 f"{self.production:,.0f}", f"{self.collections:,.0f}", f"{ratio:.1f}", str(self.patients)]
 
     def fingerprint(self):
-        values = [str(self.production), str(self.collections), self.patients, self.appointments, self.pending]
+        # The grace period follows appointments, not later bookkeeping changes.
+        values = [self.appointments, self.pending, self.appointment_fingerprint]
         return hashlib.sha256(json.dumps(values).encode()).hexdigest()
+
+
+@dataclass(frozen=True)
+class CloseMessage:
+    summary: Summary
+    detected_at: datetime
+
+    def parameters(self):
+        values = self.summary.parameters()
+        local = self.detected_at.astimezone(EASTERN)
+        period = "a. m." if local.hour < 12 else "p. m."
+        clock = f"{local.hour % 12 or 12}:{local.minute:02d} {period}"
+        # Reuse the approved date parameter; no extra template variable is needed.
+        values[0] += f" · Cierre detectado: {clock} (hora de Georgia)"
+        return values
 
 
 def summarize(day, ledger, appointments):
@@ -167,8 +185,14 @@ def summarize(day, ledger, appointments):
             pid = str(entry["patientId"]).strip()
             if pid:
                 patients.add(pid)
-    pending = sum(str(a.get("appointmentStatus", "")).strip().lower() not in TERMINAL_STATUSES for a in appointments)
-    return Summary(day, production, collections, len(patients), len(appointments), pending)
+    appointment_snapshot = sorted([
+        (str(a.get("id", "")), str(a.get("startTime", "")),
+         str(a.get("appointmentStatus", "")).strip().lower()) for a in appointments
+    ])
+    pending = sum(status not in TERMINAL_STATUSES for _, _, status in appointment_snapshot)
+    # Only a one-way digest leaves memory; no appointment identifiers are persisted.
+    fingerprint = hashlib.sha256(json.dumps(appointment_snapshot).encode()).hexdigest()
+    return Summary(day, production, collections, len(patients), len(appointments), pending, fingerprint)
 
 
 def get_summary(day):
@@ -184,14 +208,6 @@ def get_summary(day):
         "statuses": "active,check in,check out,missed,cancel", "pageSize": 500,
     })
     return summarize(day, ledger, appointments)
-
-
-def in_send_window(now):
-    now = now.astimezone(EASTERN)
-    if now.weekday() == 6:
-        return False
-    start, end = (14, 19) if now.weekday() == 5 else (16, 21)
-    return start <= now.hour < end
 
 
 class GitHubState:
@@ -275,6 +291,9 @@ class MetaSender:
 
 
 def process(summary, now, store, sender):
+    now = now.astimezone(EASTERN)
+    if summary.day != now.date():
+        raise RuntimeError("Report date changed during retrieval; wait for the next check")
     record = store.read()
     status = record.get("status")
     if status == "accepted":
@@ -282,20 +301,20 @@ def process(summary, now, store, sender):
         return
     if status == "sending":
         raise RuntimeError("Previous send is unconfirmed; check Meta before resetting the date's state")
-    # Keep the old production-based patient definition and skip non-production days.
-    # Without appointments, wait until the previous workflow's final hour (20:00/18:00).
-    closing_hour = 18 if now.weekday() == 5 else 20
-    ready = (summary.production > 0 and summary.pending == 0
-             and (summary.appointments > 0 or now.hour >= closing_hour))
+    # An actual appointment day is required, including days with only cancellations
+    # or no-shows. Empty schedules do not imply a patient just left.
+    ready = summary.appointments > 0 and summary.pending == 0
     if not ready:
         if status == "ready":
             store.write({"status": "waiting"})
-        print("Waiting for daily close or positive production")
+        print("Waiting for all of today's appointments to close")
         return
     fingerprint = summary.fingerprint()
-    if status != "ready" or record.get("fingerprint") != fingerprint:
-        store.write({"status": "ready", "ready_since": now.isoformat(), "fingerprint": fingerprint})
-        print("Close detected; waiting at least 15 minutes with stable totals")
+    if (status != "ready" or record.get("close_rule") != CLOSE_RULE
+            or record.get("fingerprint") != fingerprint):
+        store.write({"status": "ready", "ready_since": now.isoformat(),
+                     "fingerprint": fingerprint, "close_rule": CLOSE_RULE})
+        print("All appointments closed; starting the 15-minute grace period")
         return
     since = datetime.fromisoformat(record["ready_since"])
     if now - since < timedelta(minutes=15):
@@ -304,7 +323,7 @@ def process(summary, now, store, sender):
     # Record intent BEFORE POST. An ambiguous network failure must not trigger duplicates.
     store.write({"status": "sending", "started_at": now.isoformat()})
     try:
-        sender.send(summary)
+        sender.send(CloseMessage(summary, since))
     except ApiError as error:
         if 400 <= error.status < 500 and error.status != 408:
             store.write(record)  # Explicit rejection: permit a later retry after correction.
@@ -326,10 +345,14 @@ def main():
     if args.send:
         if os.environ.get("DAILY_SUMMARY_ENABLED") != "true":
             raise RuntimeError("Set DAILY_SUMMARY_ENABLED=true after configuring the approved template")
-        if not in_send_window(now):
-            print("Outside the America/New_York send window")
-            return
         sender = MetaSender.from_environment()
+        state = GitHubState(now.date())
+        previous = state.read().get("status")
+        if previous == "accepted":
+            print("Already accepted by Meta for this date; skipping")
+            return
+        if previous == "sending":
+            raise RuntimeError("Previous send is unconfirmed; check Meta before resetting the date's state")
     summary = get_summary(args.date or now.date())
     if not args.send:
         # Aggregate preview only. No state writes and no WhatsApp requests.
@@ -337,7 +360,8 @@ def main():
         print(f"Dental 3B — {day}\nProduction: ${production}\nCollections: ${collections} ({ratio}%)\nPatients seen: {patients}")
         print(f"Appointments: {summary.appointments}; pending: {summary.pending}; preview only")
         return
-    process(summary, now, GitHubState(summary.day), sender)
+    # Start the timer when the API response is observed, not before network requests.
+    process(summary, datetime.now(EASTERN), state, sender)
 
 
 if __name__ == "__main__":

@@ -51,7 +51,23 @@ class DailySummaryTests(unittest.TestCase):
         self.assertEqual((result.patients, result.pending), (1, 0))
 
     def test_unknown_appointment_status_blocks_close(self):
-        self.assertEqual(daily.summarize(DAY, [], [{}]).pending, 1)
+        for status in (None, "Left Message", "Cut", "Active", "Check In"):
+            with self.subTest(status=status):
+                self.assertEqual(daily.summarize(DAY, [], [{"appointmentStatus": status}]).pending, 1)
+
+    def test_attended_cancelled_and_missed_appointments_allow_close(self):
+        appointments = [{"appointmentStatus": status} for status in
+                        ("Check Out", "Missed", "Cancel", "Cancelled", "Canceled")]
+        self.assertEqual(daily.summarize(DAY, [], appointments).pending, 0)
+
+    def test_appointment_fingerprint_tracks_changes_but_not_list_order(self):
+        appointments = [{"id": 1, "appointmentStatus": "Check Out"},
+                        {"id": 2, "appointmentStatus": "Cancel"}]
+        original = daily.summarize(DAY, [], appointments)
+        reordered = daily.summarize(DAY, [], list(reversed(appointments)))
+        self.assertEqual(original.fingerprint(), reordered.fingerprint())
+        appointments[1]["id"] = 3
+        self.assertNotEqual(original.fingerprint(), daily.summarize(DAY, [], appointments).fingerprint())
 
     def test_token_reader_accepts_google_cloud_config_without_other_fields(self):
         value = json.dumps({"WHATSAPP_TOKEN": "EAAexample", "OTHER_SECRET": "do-not-use"}, indent=2)
@@ -97,21 +113,24 @@ class DailySummaryTests(unittest.TestCase):
                     daily.curve_pages("https://example.org/ledger", "test", {})
                 self.assertEqual(api.call_count, 1)
 
-    def test_local_hours_across_daylight_saving_and_utc_midnight(self):
-        cases = [
-            ("2026-10-23T19:59:00+00:00", False),
-            ("2026-10-23T20:00:00+00:00", True),
-            ("2026-11-06T20:59:00+00:00", False),
-            ("2026-11-06T21:00:00+00:00", True),
-            ("2026-11-07T01:30:00+00:00", True),
-            ("2026-11-07T02:00:00+00:00", False),
-            ("2026-10-24T18:00:00+00:00", True),
-            ("2026-10-24T23:00:00+00:00", False),
-            ("2026-10-25T20:00:00+00:00", False),
-        ]
-        for timestamp, expected in cases:
+    def test_early_closes_and_weekends_do_not_wait_for_fixed_hours(self):
+        for timestamp in ("2026-10-23T10:00:00-04:00", "2026-11-06T09:00:00-05:00",
+                          "2026-10-24T11:00:00-04:00", "2026-10-25T10:00:00-04:00",
+                          "2026-11-07T03:00:00+00:00"):
             with self.subTest(timestamp=timestamp):
-                self.assertEqual(daily.in_send_window(datetime.fromisoformat(timestamp)), expected)
+                now = datetime.fromisoformat(timestamp)
+                summary = report(day=now.astimezone(daily.EASTERN).date())
+                state, sender = MemoryState(), Mock()
+                daily.process(summary, now, state, sender)
+                daily.process(summary, now + timedelta(minutes=15), state, sender)
+                sender.send.assert_called_once()
+
+    def test_retrieval_crossing_local_midnight_does_not_send_yesterdays_report(self):
+        state, sender = MemoryState(), Mock()
+        with self.assertRaises(RuntimeError):
+            daily.process(report(), NOW + timedelta(days=1), state, sender)
+        sender.send.assert_not_called()
+        self.assertEqual(state.record, {})
 
     def test_waits_fifteen_minutes_then_sends_only_once(self):
         state, sender = MemoryState(), Mock()
@@ -124,29 +143,80 @@ class DailySummaryTests(unittest.TestCase):
         sender.send.assert_called_once()
         self.assertEqual(state.record["status"], "accepted")
 
-    def test_changed_totals_restart_close_interval(self):
+    def test_changed_totals_do_not_delay_patient_close_and_send_latest_values(self):
         state, sender = MemoryState(), Mock()
         daily.process(report(), NOW, state, sender)
         changed = report(collections=Decimal("1800"))
         daily.process(changed, NOW + timedelta(minutes=15), state, sender)
-        sender.send.assert_not_called()
-        self.assertEqual(state.record["ready_since"], (NOW + timedelta(minutes=15)).isoformat())
+        sender.send.assert_called_once()
+        self.assertEqual(sender.send.call_args.args[0].parameters()[2], "1,800")
 
-    def test_pending_and_zero_production_do_not_send(self):
-        for summary in (report(pending=1), report(production=Decimal(0))):
+    def test_pending_and_empty_schedules_cancel_the_timer(self):
+        for summary in (report(pending=1), report(appointments=0)):
             state, sender = MemoryState(), Mock()
             daily.process(report(), NOW, state, sender)
             daily.process(summary, NOW + timedelta(minutes=15), state, sender)
             sender.send.assert_not_called()
             self.assertEqual(state.record["status"], "waiting")
 
-    def test_no_appointments_waits_until_final_hour(self):
+    def test_no_appointments_never_uses_a_fixed_closing_hour(self):
         state, sender = MemoryState(), Mock()
         summary = report(appointments=0)
         daily.process(summary, NOW, state, sender)
         self.assertEqual(state.record, {})
         daily.process(summary, NOW.replace(hour=20), state, sender)
-        self.assertEqual(state.record["status"], "ready")
+        self.assertEqual(state.record, {})
+        sender.send.assert_not_called()
+
+    def test_cancelled_day_without_production_still_reports_close(self):
+        state, sender = MemoryState(), Mock()
+        summary = daily.summarize(DAY, [], [{"appointmentStatus": "Cancel"}, {"appointmentStatus": "Missed"}])
+        daily.process(summary, NOW, state, sender)
+        daily.process(summary, NOW + timedelta(minutes=15), state, sender)
+        sender.send.assert_called_once()
+        self.assertEqual(sender.send.call_args.args[0].parameters()[1:], ["0", "0", "0.0", "0"])
+
+    def test_reopened_appointment_restarts_fifteen_minutes_after_new_close(self):
+        state, sender = MemoryState(), Mock()
+        daily.process(report(), NOW, state, sender)
+        daily.process(report(pending=1), NOW + timedelta(minutes=10), state, sender)
+        daily.process(report(), NOW + timedelta(minutes=15), state, sender)
+        daily.process(report(), NOW + timedelta(minutes=29), state, sender)
+        sender.send.assert_not_called()
+        daily.process(report(), NOW + timedelta(minutes=30), state, sender)
+        sender.send.assert_called_once()
+
+    def test_new_completed_appointment_restarts_timer_even_without_pending_status(self):
+        state, sender = MemoryState(), Mock()
+        daily.process(report(appointment_fingerprint="first"), NOW, state, sender)
+        changed = report(appointment_fingerprint="changed")
+        daily.process(changed, NOW + timedelta(minutes=15), state, sender)
+        sender.send.assert_not_called()
+        daily.process(changed, NOW + timedelta(minutes=30), state, sender)
+        sender.send.assert_called_once()
+
+    def test_old_ready_record_must_start_a_new_appointment_timer(self):
+        state = MemoryState({"status": "ready", "fingerprint": report().fingerprint(),
+                             "ready_since": (NOW - timedelta(hours=2)).isoformat()})
+        sender = Mock()
+        daily.process(report(), NOW, state, sender)
+        sender.send.assert_not_called()
+        self.assertEqual(state.record["ready_since"], NOW.isoformat())
+
+    def test_close_message_includes_detected_time_not_send_time_with_five_parameters(self):
+        state, sender = MemoryState(), Mock()
+        daily.process(report(), NOW.replace(hour=13, minute=5), state, sender)
+        daily.process(report(), NOW.replace(hour=13, minute=20), state, sender)
+        values = sender.send.call_args.args[0].parameters()
+        self.assertEqual(len(values), 5)
+        self.assertEqual(values[0], "23 Oct 2026 · Cierre detectado: 1:05 p. m. (hora de Georgia)")
+        self.assertEqual(values[1:], report().parameters()[1:])
+
+    def test_close_time_uses_georgia_time_in_summer_and_winter(self):
+        for timestamp, day, clock in (("2026-10-24T00:30:00+00:00", DAY, "8:30 p. m."),
+                                      ("2026-11-06T15:30:00+00:00", date(2026, 11, 6), "10:30 a. m.")):
+            values = daily.CloseMessage(report(day=day), datetime.fromisoformat(timestamp)).parameters()
+            self.assertIn(clock, values[0])
 
     def test_uncertain_send_blocks_automatic_retries(self):
         state, sender = MemoryState(), Mock()
@@ -235,6 +305,33 @@ class DailySummaryTests(unittest.TestCase):
         sender.assert_not_called()
         sender.from_environment.assert_not_called()
         state.assert_not_called()
+
+    def test_send_entrypoint_detects_early_sunday_close(self):
+        early = datetime(2026, 10, 25, 10, tzinfo=daily.EASTERN)
+        summary = report(day=early.date())
+        state, sender = MemoryState(), Mock()
+        with patch("sys.argv", ["daily_summary.py", "--send"]), \
+             patch.dict("os.environ", {"DAILY_SUMMARY_ENABLED": "true"}), \
+             patch.object(daily, "datetime") as clock, \
+             patch.object(daily, "get_summary", return_value=summary) as fetch, \
+             patch.object(daily.MetaSender, "from_environment", return_value=sender), \
+             patch.object(daily, "GitHubState", return_value=state):
+            clock.now.return_value = early
+            daily.main()
+        fetch.assert_called_once_with(early.date())
+        self.assertEqual(state.record["status"], "ready")
+        sender.send.assert_not_called()
+
+    def test_send_entrypoint_skips_curve_after_report_was_accepted(self):
+        state = MemoryState({"status": "accepted"})
+        with patch("sys.argv", ["daily_summary.py", "--send"]), \
+             patch.dict("os.environ", {"DAILY_SUMMARY_ENABLED": "true"}), \
+             patch.object(daily, "get_summary") as fetch, \
+             patch.object(daily.MetaSender, "from_environment") as sender, \
+             patch.object(daily, "GitHubState", return_value=state):
+            daily.main()
+        fetch.assert_not_called()
+        sender.return_value.send.assert_not_called()
 
     def test_durable_state_writes_with_current_sha(self):
         content = base64.b64encode(json.dumps({"status": "accepted"}).encode()).decode()
