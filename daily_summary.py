@@ -25,9 +25,13 @@ TERMINAL_STATUSES = {"check out", "missed", "cancel", "cancelled", "canceled", "
 
 
 class ApiError(RuntimeError):
-    def __init__(self, service, status):
+    def __init__(self, service, status, code=None, subcode=None):
         self.status = status
-        super().__init__(f"{service}: HTTP {status}; no message delivery confirmed")
+        self.code = code if type(code) is int else None
+        self.subcode = subcode if type(subcode) is int else None
+        detail = f"; code={self.code}" if self.code is not None else ""
+        detail += f"; subcode={self.subcode}" if self.subcode is not None else ""
+        super().__init__(f"{service}: HTTP {status}{detail}; no message delivery confirmed")
 
 
 def request_json(service, method, url, *, headers=None, payload=None, form=None):
@@ -44,7 +48,15 @@ def request_json(service, method, url, *, headers=None, payload=None, form=None)
             result = json.load(response)
     except HTTPError as error:
         # Never print response bodies, bearer tokens, or patient data.
-        raise ApiError(service, error.code) from None
+        code = subcode = None
+        if service == "Meta WhatsApp":
+            try:
+                details = json.load(error).get("error", {})
+                if isinstance(details, dict):
+                    code, subcode = details.get("code"), details.get("error_subcode")
+            except (ValueError, AttributeError, OSError):
+                pass
+        raise ApiError(service, error.code, code, subcode) from None
     except (URLError, TimeoutError, OSError, ValueError):
         raise RuntimeError(f"{service}: request failed or invalid JSON response") from None
     if not isinstance(result, dict) or result.get("error"):

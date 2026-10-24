@@ -6,6 +6,7 @@ import unittest
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError
 
 import daily_summary as daily
 
@@ -210,6 +211,21 @@ class DailySummaryTests(unittest.TestCase):
         with patch.object(daily, "request_json", return_value={}):
             with self.assertRaises(RuntimeError):
                 sender.send(report())
+
+    def test_meta_error_exposes_numeric_code_without_response_details(self):
+        body = json.dumps({"error": {"code": 132001, "error_subcode": 42,
+                                  "message": "private response value"}}).encode()
+        error = HTTPError("https://graph.facebook.com/test", 400, "Bad Request", {}, io.BytesIO(body))
+        with patch.object(daily, "urlopen", side_effect=error):
+            with self.assertRaises(daily.ApiError) as caught:
+                daily.request_json("Meta WhatsApp", "POST", "https://graph.facebook.com/test", payload={})
+        self.assertEqual((caught.exception.status, caught.exception.code), (400, 132001))
+        self.assertNotIn("private response value", str(caught.exception))
+
+    def test_error_code_never_echoes_non_numeric_fields(self):
+        error = daily.ApiError("Meta WhatsApp", 400, "private code", {"token": "private"})
+        self.assertNotIn("private", str(error))
+        self.assertIsNone(error.code)
 
     def test_preview_never_uses_sender_or_writes_state(self):
         with patch("sys.argv", ["daily_summary.py", "--date", "2026-10-23"]), \
