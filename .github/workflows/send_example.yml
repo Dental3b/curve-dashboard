@@ -1,9 +1,6 @@
 name: Send requested WhatsApp example once
 
 on:
-  push:
-    branches: [codex/restore-meta-daily-summary]
-    paths: [.github/workflows/send_example.yml]
   workflow_dispatch:
 
 concurrency:

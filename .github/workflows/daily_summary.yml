@@ -26,10 +26,10 @@ permissions:
 
 jobs:
   send-summary:
-    # Preview may run on a review branch; real sends only from main after activation.
+    # Delivery was tested and confirmed; false remains an explicit pause switch.
     if: >-
       (github.event_name == 'workflow_dispatch' && !inputs.send) ||
-      (github.ref == 'refs/heads/main' && vars.DAILY_SUMMARY_ENABLED == 'true')
+      (github.ref == 'refs/heads/main' && (vars.DAILY_SUMMARY_ENABLED || 'true') == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -54,13 +54,13 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           SEND_REQUESTED: ${{ inputs.send }}
           REPORT_DATE: ${{ inputs.report_date }}
-          DAILY_SUMMARY_ENABLED: ${{ vars.DAILY_SUMMARY_ENABLED }}
+          DAILY_SUMMARY_ENABLED: ${{ vars.DAILY_SUMMARY_ENABLED || 'true' }}
           CURVE_CLIENT_ID: ${{ secrets.CURVE_CLIENT_ID }}
           CURVE_CLIENT_SECRET: ${{ secrets.CURVE_CLIENT_SECRET }}
           WHATSAPP_TOKEN: ${{ secrets.WHATSAPP_TOKEN }}
           WHATSAPP_PHONE_NUMBER_ID: ${{ vars.WHATSAPP_PHONE_NUMBER_ID }}
           WHATSAPP_TO: ${{ vars.WHATSAPP_TO }}
           WHATSAPP_TEMPLATE_NAME: ${{ vars.WHATSAPP_TEMPLATE_NAME }}
-          WHATSAPP_TEMPLATE_LANGUAGE: ${{ vars.WHATSAPP_TEMPLATE_LANGUAGE }}
+          WHATSAPP_TEMPLATE_LANGUAGE: 'es_MX'
           WHATSAPP_GRAPH_VERSION: ${{ vars.WHATSAPP_GRAPH_VERSION }}
           GITHUB_TOKEN: ${{ github.token }}

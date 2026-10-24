@@ -2,14 +2,16 @@
 
 Este cambio recupera el programa Python reemplazado accidentalmente por YAML y prepara el envío por Meta Cloud API desde el número ya usado por PDR. No cambia el registro del número, las llamadas ni los webhooks de PDR.
 
-## Configuración pendiente antes de activar
+## Estado de la configuración
 
-El propietario comunicó que la plantilla está aprobada y confirmó el WhatsApp personal como destinatario, con PDR como emisor. No se cambiará ni registrará otro número. La comprobación del 23 de octubre de 2026 (America/New_York) confirmó que las variables de número emisor, destinatario y nombre de plantilla coinciden con la configuración solicitada. `WHATSAPP_TEMPLATE_LANGUAGE` contiene una explicación en lugar del código; debe corregirse antes de enviar. La consulta de metadatos con el token existente no expone el ID de cuenta necesario para consultar el idioma. El envío diario permanece desactivado.
+La prueba del 23 de octubre de 2026 (America/New_York) fue aceptada por Meta y el propietario confirmó que recibió el mensaje en su WhatsApp personal. El emisor sigue siendo el número API existente de PDR. La variante aceptada es `es_MX`; queda fijada en los workflows para evitar otra edición manual. El intento anterior con `es` fue rechazado explícitamente con 132001 y no envió mensaje.
+
+La [prueba real 40058797390](https://github.com/Dental3b/curve-dashboard/actions/runs/40058797390) terminó correctamente y el registro independiente está en `accepted`. El envío diario queda habilitado por defecto al integrar este cambio en `main`. La variable `DAILY_SUMMARY_ENABLED=false` permite pausarlo.
 
 Plantilla creada en Meta WhatsApp Manager, dentro de la misma cuenta que contiene el número registrado de PDR:
 
 - Nombre: `dental3b_resumen_diario`
-- Idioma: español (`es`; si Meta devuelve otro código, usar exactamente ese código en GitHub).
+- Idioma aprobado y comprobado mediante entrega: español de México (`es_MX`).
 - Categoría solicitada: utilidad. Meta determina la categoría y aprobación final.
 - Parámetros de cuerpo: cinco variables posicionales, en este orden: fecha, producción, cobros, porcentaje, pacientes con producción.
 
@@ -34,22 +36,21 @@ En [GitHub → Settings → Secrets and variables → Actions](https://github.co
 | Variable | `WHATSAPP_PHONE_NUMBER_ID` | Identificador del número registrado de PDR, tomado de su configuración privada |
 | Variable | `WHATSAPP_TO` | Número internacional del destinatario que ya usaba el resumen |
 | Variable | `WHATSAPP_TEMPLATE_NAME` | `dental3b_resumen_diario`, cuando esté aprobada |
-| Variable | `WHATSAPP_TEMPLATE_LANGUAGE` | `es`, o el código exacto aprobado |
 | Variable | `WHATSAPP_GRAPH_VERSION` | `v23.0`, versión del envío PDR documentado |
-| Variable | `DAILY_SUMMARY_ENABLED` | Dejar sin definir hasta terminar la verificación; después `true` |
+| Variable opcional | `DAILY_SUMMARY_ENABLED` | Habilitado por defecto (`true`); establecer `false` para pausar |
 
 La configuración PDR está en su Secret Manager de Google Cloud. El secret `WHATSAPP_TOKEN` de GitHub puede contener el token solo o la configuración JSON / `WHATSAPP_TOKEN=valor` de Google Cloud: el programa extrae exclusivamente el campo de token y elimina saltos de línea de copiado. No modifica el secreto PDR ni publica credenciales. Los identificadores de cuenta y teléfonos se configuran en las variables de GitHub, sin valores predeterminados en el programa de envío.
 
-Verificación real del 24 de octubre de 2026 (UTC): [ejecución 40054517313](https://github.com/Dental3b/curve-dashboard/actions/runs/40054517313) confirmó que GitHub tiene el secreto, Meta lo acepta para el número esperado y Curve permite recuperar ledger y citas. Los logs solo muestran éxito o errores sanitizados, sin totales financieros ni pacientes. Esto verifica acceso actual; no garantiza vigencia indefinida del token ni entrega de mensajes. La aprobación fue comunicada posteriormente por el propietario; el código de idioma sigue pendiente de verificar. No se envió WhatsApp.
+Verificación real del 24 de octubre de 2026 (UTC): [ejecución 40054517313](https://github.com/Dental3b/curve-dashboard/actions/runs/40054517313) confirmó que GitHub tiene el secreto, Meta lo acepta para el número esperado y Curve permite recuperar ledger y citas. Los logs solo muestran éxito o errores sanitizados, sin totales financieros ni pacientes. Esto verifica acceso actual; no garantiza vigencia indefinida del token ni entrega de mensajes. Esta primera verificación solo consultó las APIs. La prueba de entrega posterior confirmó la variante `es_MX` y fue recibida por el propietario.
 
-## Verificación y activación
+## Operación y comprobación
 
-El destinatario personal ya está confirmado. Corregir primero `WHATSAPP_TEMPLATE_LANGUAGE` usando únicamente el código exacto mostrado en Meta. El script `delivery_test.py` está preparado, pero no se ha publicado un workflow de envío porque la validación del idioma sigue fallando. Una vez corregido y verificado el idioma, se podrá ejecutar una prueba autorizada para enviar el resumen de 2026-10-23 con la fecha marcada `PRUEBA`. Tiene un registro independiente `delivery-test-v1.json`: no altera el estado diario ni habilita envíos recurrentes. Un resultado aceptado o incierto impide repetir el ejemplo. Una respuesta explícita de rechazo permite corregir la configuración y volver a ejecutar el mismo job. Confirmar recepción antes de activar el envío diario.
-
-1. Integrar este cambio y ejecutar **Actions → Daily Summary → Run workflow** con `send` desmarcado y `report_date` en `2026-10-23`. La vista previa solo consulta Curve; no escribe estado ni envía WhatsApp. Comparar los totales con Curve.
-2. Una vez aprobada la plantilla y configurado el token, establecer `DAILY_SUMMARY_ENABLED=true`.
-3. Dentro de la ventana de envío, el primer control que encuentre el cierre guarda la hora. El siguiente control, al menos 15 minutos después y con los mismos totales, envía. También se puede ejecutar manualmente con `send` marcado, respetando los mismos controles; no hay un botón que ignore la protección contra duplicados.
-4. Verificar recepción en el WhatsApp del destinatario. Una respuesta con `wamid` confirma aceptación de Meta; la entrega final se comprueba en el dispositivo o en el webhook de estado de WhatsApp ya existente. Este cambio no modifica ese webhook.
+1. El workflow **Daily Summary** solo envía desde `main`. Está habilitado por defecto; puede pausarse con `DAILY_SUMMARY_ENABLED=false` y reanudarse con `true`.
+2. La plantilla usa `es_MX` fijado en los workflows. La antigua variable `WHATSAPP_TEMPLATE_LANGUAGE` no se utiliza.
+3. El primer control que detecta cierre guarda la hora. El siguiente, al menos 15 minutos después y con los mismos totales, envía.
+4. La prueba manual usa `delivery_test.py`, el resumen de 2026-10-23 y la etiqueta `PRUEBA`. Su registro `delivery-test-v1.json` está separado de las fechas del envío diario. Volver a ejecutarla no repite el mensaje aceptado. El workflow de ejemplo solo permite ejecución manual; ya no se dispara al cambiar archivos.
+5. Meta debe devolver un ID de mensaje para registrar aceptación. La recepción del ejemplo fue confirmada por el propietario; para futuros mensajes, el resultado de entrega se comprueba mediante el dispositivo o el webhook existente. No se modifica ese webhook.
+6. La vista previa manual (`send` desmarcado) consulta Curve sin enviar ni escribir estado. Sus totales aparecen en los logs públicos del repositorio; no usarla para datos que no deban publicarse.
 
 ## Horario y reglas
 
@@ -77,6 +78,6 @@ No se garantiza entrega exactamente una vez: una respuesta perdida después del 
 python -m unittest discover -s tests -v
 ```
 
-Las 27 pruebas unitarias usan respuestas simuladas: ledger de doble entrada, paginación, fallos parciales, horario de verano, cierre estable, rechazo de Meta, resultados inciertos, escrituras de estado en conflicto y extracción del token desde la configuración de Google Cloud y envío de un ejemplo independiente con protección contra duplicados. No usan credenciales ni envían mensajes. El workflow `Verify Curve and Meta connections` realiza por separado consultas de lectura con los secretos guardados; nunca envía WhatsApp. Solo se usa la biblioteca estándar de Python 3.11+.
+Las 29 pruebas unitarias usan respuestas simuladas: ledger de doble entrada, paginación, fallos parciales, horario de verano, cierre estable, rechazo de Meta, resultados inciertos, escrituras de estado en conflicto y extracción del token desde la configuración de Google Cloud y envío de un ejemplo independiente con protección contra duplicados. No usan credenciales ni envían mensajes. El workflow `Verify Curve and Meta connections` realiza por separado consultas de lectura con los secretos guardados; nunca envía WhatsApp. Solo se usa la biblioteca estándar de Python 3.11+.
 
 Referencias: [envío de plantillas de Meta](https://www.postman.com/meta/whatsapp-business-platform/request/o65u5m5/send-message-template-text), [Messages de Meta](https://www.postman.com/meta/whatsapp-business-platform/folder/o48mro7/messages), [GitHub Contents API](https://docs.github.com/en/rest/repos/contents), [programación de Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
