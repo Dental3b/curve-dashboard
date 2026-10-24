@@ -1,0 +1,111 @@
+name: Verify Curve and Meta connections
+
+on:
+  push:
+    branches: [codex/restore-meta-daily-summary]
+    paths: [.github/workflows/verify_connections.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify WhatsApp configuration and Meta access (read only)
+        env:
+          WHATSAPP_TOKEN: ${{ secrets.WHATSAPP_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID: ${{ vars.WHATSAPP_PHONE_NUMBER_ID }}
+          WHATSAPP_TO: ${{ vars.WHATSAPP_TO }}
+          WHATSAPP_TEMPLATE_NAME: ${{ vars.WHATSAPP_TEMPLATE_NAME }}
+          WHATSAPP_TEMPLATE_LANGUAGE: 'es_MX'
+          WHATSAPP_GRAPH_VERSION: ${{ vars.WHATSAPP_GRAPH_VERSION }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          from urllib.error import HTTPError, URLError
+          from urllib.request import Request, urlopen
+          from daily_summary import MetaSender
+          names = (
+              'WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_TO',
+              'WHATSAPP_TEMPLATE_NAME',
+          )
+          missing = [name for name in names if not os.environ.get(name, '').strip()]
+          if missing:
+              print('MISSING repository variables: ' + ', '.join(missing))
+              print('Read-only verification: no WhatsApp message was sent.')
+              sys.exit(1)
+          try:
+              sender = MetaSender.from_environment()
+              if sender.template != 'dental3b_resumen_diario':
+                  raise RuntimeError('WHATSAPP_TEMPLATE_NAME does not match the Dental 3B template')
+              if not re.fullmatch(r'es(?:_[A-Z]{2})?', sender.language):
+                  raise RuntimeError('WHATSAPP_TEMPLATE_LANGUAGE must match the approved Spanish variant')
+              request = Request(
+                  f'https://graph.facebook.com/{sender.version}/{sender.phone_id}?fields=id',
+                  headers={'Authorization': f'Bearer {sender.token}'},
+              )
+              with urlopen(request, timeout=60) as response:
+                  data = json.load(response)
+              if str(data.get('id', '')) != sender.phone_id:
+                  raise RuntimeError('Meta returned a different phone ID; stop configuration')
+              print('PASS: required variables are present and valid; Meta accepted the token for the configured sender.')
+              print('Configured template language: ' + sender.language)
+              print('Recipient syntax is valid; ownership and template approval must be confirmed separately.')
+              print('Read-only verification: no WhatsApp message was sent.')
+          except HTTPError as error:
+              try:
+                  details = json.load(error).get('error', {})
+              except Exception:
+                  details = {}
+              code = details.get('code')
+              subcode = details.get('error_subcode')
+              print(f'Meta HTTP {error.code}; code={code if isinstance(code, int) else "unknown"}; subcode={subcode if isinstance(subcode, int) else "unknown"}')
+              sys.exit(1)
+          except URLError as error:
+              print(f'Meta transport error: {type(error.reason).__name__}')
+              sys.exit(1)
+          except Exception as error:
+              print(str(error) if isinstance(error, RuntimeError) else type(error).__name__)
+              sys.exit(1)
+          PY
+      - name: Verify Curve authentication and report retrieval (read only)
+        if: ${{ !cancelled() }}
+        env:
+          CURVE_CLIENT_ID: ${{ secrets.CURVE_CLIENT_ID }}
+          CURVE_CLIENT_SECRET: ${{ secrets.CURVE_CLIENT_SECRET }}
+        run: |
+          python - <<'PY'
+          import sys
+          from datetime import date
+          from daily_summary import get_summary
+          try:
+              summary = get_summary(date(2026, 10, 23))
+              print('PASS: Curve authentication, ledger pagination and appointment retrieval succeeded.')
+              print('No patient records or financial totals are printed in public workflow logs.')
+          except Exception as error:
+              print(str(error) if isinstance(error, RuntimeError) else type(error).__name__)
+              sys.exit(1)
+          PY
+
+      - name: Verify daily schedule activation setting
+        env:
+          EFFECTIVE_ENABLED: ${{ vars.DAILY_SUMMARY_ENABLED || 'true' }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          if os.environ.get('EFFECTIVE_ENABLED') != 'true':
+              print('Daily schedule is paused or has an invalid DAILY_SUMMARY_ENABLED value.')
+              sys.exit(1)
+          print('PASS: the daily schedule will be enabled on main.')
+          PY

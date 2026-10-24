@@ -1,0 +1,38 @@
+name: Send requested WhatsApp example once
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: dental3b-daily-summary
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  send-example:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check offline behavior
+        run: python -m unittest discover -s tests
+      - name: Send one labeled example to the configured recipient
+        run: python delivery_test.py
+        env:
+          ALLOW_DELIVERY_TEST: 'true'
+          CURVE_CLIENT_ID: ${{ secrets.CURVE_CLIENT_ID }}
+          CURVE_CLIENT_SECRET: ${{ secrets.CURVE_CLIENT_SECRET }}
+          WHATSAPP_TOKEN: ${{ secrets.WHATSAPP_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID: ${{ vars.WHATSAPP_PHONE_NUMBER_ID }}
+          WHATSAPP_TO: ${{ vars.WHATSAPP_TO }}
+          WHATSAPP_TEMPLATE_NAME: ${{ vars.WHATSAPP_TEMPLATE_NAME }}
+          WHATSAPP_TEMPLATE_LANGUAGE: 'es_MX'
+          WHATSAPP_GRAPH_VERSION: ${{ vars.WHATSAPP_GRAPH_VERSION }}
+          GITHUB_TOKEN: ${{ github.token }}

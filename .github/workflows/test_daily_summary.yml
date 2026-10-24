@@ -1,0 +1,25 @@
+name: Test Daily Summary
+
+on:
+  pull_request:
+    paths:
+      - daily_summary.py
+      - delivery_test.py
+      - tests/test_daily_summary.py
+      - tests/test_delivery_test.py
+      - .github/workflows/daily_summary.yml
+      - .github/workflows/test_daily_summary.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest discover -s tests -v
