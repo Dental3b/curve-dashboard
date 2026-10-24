@@ -4,7 +4,7 @@ Este cambio recupera el programa Python reemplazado accidentalmente por YAML y p
 
 ## Configuración pendiente antes de activar
 
-En Meta WhatsApp Manager, dentro de la misma cuenta que contiene el número **+1 470 619 5333**, crear y esperar la aprobación de esta plantilla:
+En Meta WhatsApp Manager, dentro de la misma cuenta que contiene el número registrado de PDR, crear y esperar la aprobación de esta plantilla:
 
 - Nombre: `dental3b_resumen_diario`
 - Idioma: español (`es`; si Meta devuelve otro código, usar exactamente ese código en GitHub).
@@ -31,14 +31,16 @@ En [GitHub → Settings → Secrets and variables → Actions](https://github.co
 | Secret | `CURVE_CLIENT_ID` | Ya existente |
 | Secret | `CURVE_CLIENT_SECRET` | Ya existente |
 | Secret | `WHATSAPP_TOKEN` | Token de sistema Meta con acceso al número y permiso `whatsapp_business_messaging` |
-| Variable | `WHATSAPP_PHONE_NUMBER_ID` | `1297938553410334`, verificar que corresponde a +1 470 619 5333 |
-| Variable | `WHATSAPP_TO` | `14049666951`, destinatario que ya usaba el resumen |
+| Variable | `WHATSAPP_PHONE_NUMBER_ID` | Identificador del número registrado de PDR, tomado de su configuración privada |
+| Variable | `WHATSAPP_TO` | Número internacional del destinatario que ya usaba el resumen |
 | Variable | `WHATSAPP_TEMPLATE_NAME` | `dental3b_resumen_diario`, cuando esté aprobada |
 | Variable | `WHATSAPP_TEMPLATE_LANGUAGE` | `es`, o el código exacto aprobado |
 | Variable | `WHATSAPP_GRAPH_VERSION` | `v23.0`, versión del envío PDR documentado |
 | Variable | `DAILY_SUMMARY_ENABLED` | Dejar sin definir hasta terminar la verificación; después `true` |
 
-La configuración PDR documentada está en Google Cloud, proyecto `pro-dental-jobber-2026`, secreto `jobber-whatsapp-config`. Si su `WHATSAPP_TOKEN` sigue vigente y tiene acceso a este número, copiar solo ese valor directamente al secret de GitHub. No modificar el secreto PDR ni pegar credenciales en el chat o en archivos del repositorio. No se verificó aquí la vigencia actual del token ni el estado de aprobación de la plantilla. Los tokens pueden caducar o revocarse según su configuración.
+La configuración PDR está en su Secret Manager de Google Cloud. El secret `WHATSAPP_TOKEN` de GitHub puede contener el token solo o la configuración JSON / `WHATSAPP_TOKEN=valor` de Google Cloud: el programa extrae exclusivamente el campo de token y elimina saltos de línea de copiado. No modifica el secreto PDR ni publica credenciales. Los identificadores de cuenta y teléfonos se configuran en las variables de GitHub, sin valores predeterminados en el programa de envío.
+
+Verificación real del 24 de octubre de 2026 (UTC): [ejecución 40054517313](https://github.com/Dental3b/curve-dashboard/actions/runs/40054517313) confirmó que GitHub tiene el secreto, Meta lo acepta para el número esperado y Curve permite recuperar ledger y citas. Los logs solo muestran éxito o errores sanitizados, sin totales financieros ni pacientes. Esto verifica acceso actual; no garantiza vigencia indefinida del token ni entrega de mensajes. La plantilla aún requiere verificación/aprobación; no se envió WhatsApp.
 
 ## Verificación y activación
 
@@ -73,6 +75,6 @@ No se garantiza entrega exactamente una vez: una respuesta perdida después del 
 python -m unittest discover -s tests -v
 ```
 
-Las pruebas usan respuestas simuladas: ledger de doble entrada, paginación, fallos parciales, horario de verano, cierre estable, rechazo de Meta, resultados inciertos y escrituras de estado en conflicto. No usan credenciales ni envían mensajes. Solo se usa la biblioteca estándar de Python 3.11+.
+Las 21 pruebas unitarias usan respuestas simuladas: ledger de doble entrada, paginación, fallos parciales, horario de verano, cierre estable, rechazo de Meta, resultados inciertos, escrituras de estado en conflicto y extracción del token desde la configuración de Google Cloud. No usan credenciales ni envían mensajes. El workflow `Verify Curve and Meta connections` realiza por separado consultas de lectura con los secretos guardados; nunca envía WhatsApp. Solo se usa la biblioteca estándar de Python 3.11+.
 
 Referencias: [envío de plantillas de Meta](https://www.postman.com/meta/whatsapp-business-platform/request/o65u5m5/send-message-template-text), [Messages de Meta](https://www.postman.com/meta/whatsapp-business-platform/folder/o48mro7/messages), [GitHub Contents API](https://docs.github.com/en/rest/repos/contents), [programación de Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
