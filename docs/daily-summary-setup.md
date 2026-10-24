@@ -4,6 +4,8 @@ Este cambio recupera el programa Python reemplazado accidentalmente por YAML y p
 
 ## Configuración pendiente antes de activar
 
+Estado comunicado desde WhatsApp Manager el 24 de octubre de 2026 (UTC): `In review`. Pendiente de aprobación y de verificar el código de idioma exacto antes del primer envío.
+
 En Meta WhatsApp Manager, dentro de la misma cuenta que contiene el número registrado de PDR, crear y esperar la aprobación de esta plantilla:
 
 - Nombre: `dental3b_resumen_diario`
@@ -17,9 +19,7 @@ En Meta WhatsApp Manager, dentro de la misma cuenta que contiene el número regi
 
 Producción: ${{2}}
 Cobros: ${{3}} ({{4}}%)
-Pacientes con producción: {{5}}
-
-Reporte administrativo diario.
+{{5}} pacientes con producción.
 ```
 
 Ejemplos para la revisión: `23 Oct 2026`, `3,381`, `1,798`, `53.2`, `9`.
