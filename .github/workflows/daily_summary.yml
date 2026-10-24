@@ -5,7 +5,7 @@ on:
     # UTC envelope for both EST and EDT; Python enforces America/New_York hours.
     # Weekdays 16:00-20:59, Saturdays 14:00-18:59; Sunday never sends.
     - cron: '*/15 18-23 * * 1-6'
-    - cron: '*/15 0-1 * * 2-7'
+    - cron: '*/15 0-1 * * 0,2-6'
   workflow_dispatch:
     inputs:
       send:
