@@ -23,18 +23,38 @@ jobs:
           WHATSAPP_TOKEN: ${{ secrets.WHATSAPP_TOKEN }}
         run: |
           python - <<'PY'
+          import json
           import re
           import sys
-          from daily_summary import request_json, required
+          from urllib.error import HTTPError, URLError
+          from urllib.request import Request, urlopen
+          from daily_summary import required
           try:
               token = required('WHATSAPP_TOKEN')
-              data = request_json('Meta connection check', 'GET',
-                  'https://graph.facebook.com/v23.0/1297938553410334?fields=id,display_phone_number',
+              if any(character.isspace() for character in token):
+                  raise RuntimeError('TOKEN_FORMAT: saved value contains internal whitespace or multiple lines')
+              if token.startswith(('{', 'WHATSAPP_TOKEN=', '\"', "'")):
+                  raise RuntimeError('TOKEN_FORMAT: saved value includes configuration text or quotes')
+              request = Request('https://graph.facebook.com/v23.0/1297938553410334?fields=id,display_phone_number',
                   headers={'Authorization': f'Bearer {token}'})
+              with urlopen(request, timeout=60) as response:
+                  data = json.load(response)
               if re.sub(r'\D', '', str(data.get('display_phone_number', ''))) != '14706195333':
                   raise RuntimeError('Meta returned a different phone number; stop configuration')
               print('PASS: GitHub secret is present; Meta accepted it for the expected PDR number.')
               print('Read-only verification: no WhatsApp message was sent.')
+          except HTTPError as error:
+              try:
+                  details = json.load(error).get('error', {})
+              except Exception:
+                  details = {}
+              code = details.get('code')
+              subcode = details.get('error_subcode')
+              print(f'Meta HTTP {error.code}; code={code if isinstance(code, int) else "unknown"}; subcode={subcode if isinstance(subcode, int) else "unknown"}')
+              sys.exit(1)
+          except URLError as error:
+              print(f'Meta transport error: {type(error.reason).__name__}')
+              sys.exit(1)
           except Exception as error:
               print(str(error) if isinstance(error, RuntimeError) else type(error).__name__)
               sys.exit(1)
