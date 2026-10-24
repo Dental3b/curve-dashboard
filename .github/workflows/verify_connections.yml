@@ -96,3 +96,16 @@ jobs:
               print(str(error) if isinstance(error, RuntimeError) else type(error).__name__)
               sys.exit(1)
           PY
+
+      - name: Verify daily schedule activation setting
+        env:
+          EFFECTIVE_ENABLED: ${{ vars.DAILY_SUMMARY_ENABLED || 'true' }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          if os.environ.get('EFFECTIVE_ENABLED') != 'true':
+              print('Daily schedule is paused or has an invalid DAILY_SUMMARY_ENABLED value.')
+              sys.exit(1)
+          print('PASS: the daily schedule will be enabled on main.')
+          PY
