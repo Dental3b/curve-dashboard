@@ -4,9 +4,9 @@ Este cambio recupera el programa Python reemplazado accidentalmente por YAML y p
 
 ## Configuración pendiente antes de activar
 
-Estado comunicado desde WhatsApp Manager el 24 de octubre de 2026 (UTC): `In review`. Pendiente de aprobación y de verificar el código de idioma exacto antes del primer envío.
+El propietario comunicó que la plantilla ya está aprobada el 23 de octubre de 2026 (America/New_York). Falta verificar el código de idioma exacto y completar las variables de GitHub antes del primer envío. La prueba permanece pausada por solicitud del propietario; este estado no habilita envíos.
 
-En Meta WhatsApp Manager, dentro de la misma cuenta que contiene el número registrado de PDR, crear y esperar la aprobación de esta plantilla:
+Plantilla creada en Meta WhatsApp Manager, dentro de la misma cuenta que contiene el número registrado de PDR:
 
 - Nombre: `dental3b_resumen_diario`
 - Idioma: español (`es`; si Meta devuelve otro código, usar exactamente ese código en GitHub).
@@ -40,7 +40,7 @@ En [GitHub → Settings → Secrets and variables → Actions](https://github.co
 
 La configuración PDR está en su Secret Manager de Google Cloud. El secret `WHATSAPP_TOKEN` de GitHub puede contener el token solo o la configuración JSON / `WHATSAPP_TOKEN=valor` de Google Cloud: el programa extrae exclusivamente el campo de token y elimina saltos de línea de copiado. No modifica el secreto PDR ni publica credenciales. Los identificadores de cuenta y teléfonos se configuran en las variables de GitHub, sin valores predeterminados en el programa de envío.
 
-Verificación real del 24 de octubre de 2026 (UTC): [ejecución 40054517313](https://github.com/Dental3b/curve-dashboard/actions/runs/40054517313) confirmó que GitHub tiene el secreto, Meta lo acepta para el número esperado y Curve permite recuperar ledger y citas. Los logs solo muestran éxito o errores sanitizados, sin totales financieros ni pacientes. Esto verifica acceso actual; no garantiza vigencia indefinida del token ni entrega de mensajes. La plantilla aún requiere verificación/aprobación; no se envió WhatsApp.
+Verificación real del 24 de octubre de 2026 (UTC): [ejecución 40054517313](https://github.com/Dental3b/curve-dashboard/actions/runs/40054517313) confirmó que GitHub tiene el secreto, Meta lo acepta para el número esperado y Curve permite recuperar ledger y citas. Los logs solo muestran éxito o errores sanitizados, sin totales financieros ni pacientes. Esto verifica acceso actual; no garantiza vigencia indefinida del token ni entrega de mensajes. La aprobación fue comunicada posteriormente por el propietario; el código de idioma sigue pendiente de verificar. No se envió WhatsApp.
 
 ## Verificación y activación
 
