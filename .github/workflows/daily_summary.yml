@@ -2,30 +2,65 @@ name: Daily Summary
 
 on:
   schedule:
-    # Monday-Friday: every 15 min from 4pm-8pm EST
-    - cron: '*/15 20-23 * * 1-5'
-    # Saturday: every 15 min from 2pm-6pm EST
-    - cron: '*/15 18-21 * * 6'
+    # UTC envelope for both EST and EDT; Python enforces America/New_York hours.
+    # Weekdays 16:00-20:59, Saturdays 14:00-18:59; Sunday never sends.
+    - cron: '*/15 18-23 * * 1-6'
+    - cron: '*/15 0-1 * * 2-7'
   workflow_dispatch:
+    inputs:
+      send:
+        description: 'Send if the close is ready (unchecked = read-only preview)'
+        type: boolean
+        default: false
+      report_date:
+        description: 'Optional YYYY-MM-DD for a read-only preview'
+        type: string
+        default: ''
+
+concurrency:
+  group: dental3b-daily-summary
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   send-summary:
+    # Preview may run on a review branch; real sends only from main after activation.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && !inputs.send) ||
+      (github.ref == 'refs/heads/main' && vars.DAILY_SUMMARY_ENABLED == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      
-      - name: Install dependencies
-        run: pip install requests
-      
       - name: Run daily summary
-        run: python daily_summary.py
+        shell: bash
+        run: |
+          args=()
+          if [[ "$EVENT_NAME" == "schedule" || "$SEND_REQUESTED" == "true" ]]; then
+            args+=(--send)
+          fi
+          if [[ -n "$REPORT_DATE" ]]; then
+            args+=(--date "$REPORT_DATE")
+          fi
+          python daily_summary.py "${args[@]}"
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          SEND_REQUESTED: ${{ inputs.send }}
+          REPORT_DATE: ${{ inputs.report_date }}
+          DAILY_SUMMARY_ENABLED: ${{ vars.DAILY_SUMMARY_ENABLED }}
           CURVE_CLIENT_ID: ${{ secrets.CURVE_CLIENT_ID }}
           CURVE_CLIENT_SECRET: ${{ secrets.CURVE_CLIENT_SECRET }}
-          TWILIO_SID: ${{ secrets.TWILIO_SID }}
-          TWILIO_TOKEN: ${{ secrets.TWILIO_TOKEN }}
+          WHATSAPP_TOKEN: ${{ secrets.WHATSAPP_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID: ${{ vars.WHATSAPP_PHONE_NUMBER_ID }}
+          WHATSAPP_TO: ${{ vars.WHATSAPP_TO }}
+          WHATSAPP_TEMPLATE_NAME: ${{ vars.WHATSAPP_TEMPLATE_NAME }}
+          WHATSAPP_TEMPLATE_LANGUAGE: ${{ vars.WHATSAPP_TEMPLATE_LANGUAGE }}
+          WHATSAPP_GRAPH_VERSION: ${{ vars.WHATSAPP_GRAPH_VERSION }}
+          GITHUB_TOKEN: ${{ github.token }}
