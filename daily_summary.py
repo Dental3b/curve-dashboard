@@ -146,7 +146,7 @@ class Summary:
         months = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
         ratio = self.collections / self.production * 100 if self.production else Decimal(0)
         return [f"{self.day.day:02d} {months[self.day.month - 1]} {self.day.year}",
-                f"{self.production:,.0f}", f"{self.collections:,.0f}", f"{ratio:.1f}", str(self.patients)]
+                f"{self.production:,.2f}", f"{self.collections:,.2f}", f"{ratio:.1f}", str(self.patients)]
 
     def fingerprint(self):
         # The grace period follows appointments, not later bookkeeping changes.
@@ -177,10 +177,13 @@ def summarize(day, ledger, appointments):
         calc = entry.get("calculations") or {}
         amount = Decimal(str(calc.get("production") or 0))
         payment = Decimal(str(calc.get("payments") or 0))
-        if not amount.is_finite() or not payment.is_finite():
+        deposit = Decimal(str(calc.get("deposits") or 0))
+        if not amount.is_finite() or not payment.is_finite() or not deposit.is_finite():
             raise RuntimeError("Curve: invalid ledger amount")
         production += amount
-        collections += payment
+        # Curve records deposits separately from payments. Include the new money
+        # once; totalPayments/paymentsFromAccountCredit can reapply existing credit.
+        collections += payment + deposit
         if amount > 0 and entry.get("patientId") is not None:
             pid = str(entry["patientId"]).strip()
             if pid:

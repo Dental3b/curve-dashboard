@@ -55,6 +55,29 @@ class DailySummaryTests(unittest.TestCase):
             with self.subTest(status=status):
                 self.assertEqual(daily.summarize(DAY, [], [{"appointmentStatus": status}]).pending, 1)
 
+    def test_deposit_and_its_later_account_credit_application_count_once(self):
+        ledger = [
+            {"calculations": {"payments": "49.25"}},
+            {"calculations": {"deposits": "300.00", "payments": "0"}},
+            {"calculations": {"paymentsFromAccountCredit": "300.00", "totalPayments": "300.00"}},
+            {"amount": "300.00", "calculations": {}},
+        ]
+        summary = daily.summarize(DAY, ledger, [])
+        self.assertEqual(summary.collections, Decimal("349.25"))
+        self.assertEqual(summary.parameters()[2], "349.25")
+
+    def test_existing_credit_without_new_deposit_is_not_new_money(self):
+        ledger = [{"calculations": {"paymentsFromAccountCredit": "300", "totalPayments": "300"}}]
+        self.assertEqual(daily.summarize(DAY, ledger, []).collections, Decimal(0))
+
+    def test_deposit_with_no_payment_still_counts(self):
+        ledger = [{"calculations": {"deposits": "125.10"}}]
+        self.assertEqual(daily.summarize(DAY, ledger, []).collections, Decimal("125.10"))
+
+    def test_invalid_deposit_blocks_the_report(self):
+        with self.assertRaises(RuntimeError):
+            daily.summarize(DAY, [{"calculations": {"deposits": "NaN"}}], [])
+
     def test_attended_cancelled_and_missed_appointments_allow_close(self):
         appointments = [{"appointmentStatus": status} for status in
                         ("Check Out", "Missed", "Cancel", "Cancelled", "Canceled")]
@@ -149,7 +172,7 @@ class DailySummaryTests(unittest.TestCase):
         changed = report(collections=Decimal("1800"))
         daily.process(changed, NOW + timedelta(minutes=15), state, sender)
         sender.send.assert_called_once()
-        self.assertEqual(sender.send.call_args.args[0].parameters()[2], "1,800")
+        self.assertEqual(sender.send.call_args.args[0].parameters()[2], "1,800.00")
 
     def test_pending_and_empty_schedules_cancel_the_timer(self):
         for summary in (report(pending=1), report(appointments=0)):
@@ -174,7 +197,7 @@ class DailySummaryTests(unittest.TestCase):
         daily.process(summary, NOW, state, sender)
         daily.process(summary, NOW + timedelta(minutes=15), state, sender)
         sender.send.assert_called_once()
-        self.assertEqual(sender.send.call_args.args[0].parameters()[1:], ["0", "0", "0.0", "0"])
+        self.assertEqual(sender.send.call_args.args[0].parameters()[1:], ["0.00", "0.00", "0.0", "0"])
 
     def test_reopened_appointment_restarts_fifteen_minutes_after_new_close(self):
         state, sender = MemoryState(), Mock()
@@ -274,7 +297,7 @@ class DailySummaryTests(unittest.TestCase):
         self.assertEqual(payload["type"], "template")
         self.assertEqual(payload["template"]["language"]["code"], "es")
         self.assertEqual([p["text"] for p in payload["template"]["components"][0]["parameters"]],
-                         ["23 Oct 2026", "3,381", "1,798", "53.2", "9"])
+                         ["23 Oct 2026", "3,381.00", "1,798.10", "53.2", "9"])
 
     def test_no_message_id_is_not_success(self):
         sender = daily.MetaSender("test", "123", "12025550123", "daily", "es", "v23.0")
