@@ -96,3 +96,62 @@ jobs:
               print(str(error) if isinstance(error, RuntimeError) else type(error).__name__)
               sys.exit(1)
           PY
+
+      - name: Inspect approved template language (read only)
+        if: ${{ !cancelled() }}
+        env:
+          WHATSAPP_TOKEN: ${{ secrets.WHATSAPP_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID: ${{ vars.WHATSAPP_PHONE_NUMBER_ID }}
+          WHATSAPP_TEMPLATE_NAME: ${{ vars.WHATSAPP_TEMPLATE_NAME }}
+          WHATSAPP_GRAPH_VERSION: ${{ vars.WHATSAPP_GRAPH_VERSION }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import sys
+          from urllib.parse import urlencode
+          from daily_summary import ApiError, request_json, required, whatsapp_token
+          try:
+              token = whatsapp_token()
+              phone_id = required('WHATSAPP_PHONE_NUMBER_ID')
+              template = required('WHATSAPP_TEMPLATE_NAME')
+              version = os.environ.get('WHATSAPP_GRAPH_VERSION') or 'v23.0'
+              if not phone_id.isdigit() or not re.fullmatch(r'v[0-9]+\.0', version):
+                  raise RuntimeError('Invalid sender configuration')
+              base = 'https://graph.facebook.com/' + version
+              headers = {'Authorization': 'Bearer ' + token}
+              debug = request_json('Meta token metadata', 'GET',
+                  base + '/debug_token?' + urlencode({'input_token': token}), headers=headers).get('data', {})
+              account_ids = set()
+              for scope in debug.get('granular_scopes', []):
+                  if scope.get('scope') in {'whatsapp_business_management', 'whatsapp_business_messaging'}:
+                      account_ids.update(str(value) for value in scope.get('target_ids', []) if str(value).isdigit())
+              if not account_ids:
+                  raise RuntimeError('Meta token metadata does not expose an account ID; check language in WhatsApp Manager')
+              matches = []
+              for account_id in sorted(account_ids):
+                  try:
+                      phones = request_json('Meta account phone numbers', 'GET',
+                          base + '/' + account_id + '/phone_numbers?fields=id&limit=100',
+                          headers=headers).get('data', [])
+                      if not any(str(phone.get('id')) == phone_id for phone in phones):
+                          continue
+                      templates = request_json('Meta template metadata', 'GET',
+                          base + '/' + account_id + '/message_templates?' + urlencode({
+                              'name': template, 'fields': 'name,status,language', 'limit': 100
+                          }), headers=headers).get('data', [])
+                      matches.extend(item for item in templates if item.get('name') == template)
+                  except ApiError:
+                      continue
+              safe_matches = [(item.get('language'), item.get('status')) for item in matches
+                  if re.fullmatch(r'es(?:_[A-Z]{2})?', str(item.get('language', '')))
+                  and item.get('status') in {'APPROVED', 'PENDING', 'REJECTED', 'PAUSED', 'DISABLED'}]
+              if not safe_matches:
+                  raise RuntimeError('No accessible Spanish template metadata found; check language in WhatsApp Manager')
+              for language, status in safe_matches:
+                  print('TEMPLATE: language=' + language + '; status=' + status)
+              print('Template inspection only; no WhatsApp message was sent.')
+          except Exception as error:
+              print(str(error) if isinstance(error, RuntimeError) else type(error).__name__)
+              sys.exit(1)
+          PY
