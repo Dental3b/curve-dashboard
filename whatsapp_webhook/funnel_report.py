@@ -12,7 +12,7 @@ METRICS = (
     ("contacts", "People who contacted us"),
     ("existing_patients", "Existing patients when they contacted us"),
     ("initial_no_response", "Initial message, no further reply"),
-    ("conversation_no_booking", "Chatted, no appointment found in Curve"),
+    ("conversation_no_booking", "Contacts with no appointment found"),
     ("booked", "Booked before their first visit"),
     ("arrived", "Attended"),
     ("paid_only_49", "Paid only $49"),
