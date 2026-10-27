@@ -76,9 +76,7 @@ def render_whatsapp_funnel(st, secret, start_date, end_date, api=None):
         'WhatsApp Funnel</h3>',
         unsafe_allow_html=True,
     )
-    mode = st.radio("Funnel period", ["Selected date range", "Today", "Verified historical report"], horizontal=True, key="wa_funnel_period")
-    if mode == "Today":
-        start_date = end_date = datetime.now(ZoneInfo("America/New_York")).date()
+    st.caption("Selected date range")
     st.caption(f"{start_date:%b %d, %Y} to {end_date:%b %d, %Y} · Atlanta time")
     base_url = secret("WHATSAPP_FUNNEL_URL")
     token = secret("WHATSAPP_FUNNEL_REPORT_TOKEN")
@@ -86,14 +84,6 @@ def render_whatsapp_funnel(st, secret, start_date, end_date, api=None):
         st.info("The funnel is awaiting connection to its verified reports.")
         return
     try:
-        if mode == "Verified historical report":
-            report = fetch_funnel_report(base_url, token, start_date.isoformat(), end_date.isoformat())
-            if report is None:
-                st.info("No manually verified historical report exists for this exact date range.")
-                return
-            st.dataframe(report_rows(report), use_container_width=True, hide_index=True)
-            st.caption(f"Historical snapshot through {report['end']}. This is separate from the live capture.")
-            return
         if api is None:
             raise LiveNotReady("Curve connection unavailable")
         now = datetime.now(ZoneInfo("America/New_York"))
@@ -104,7 +94,12 @@ def render_whatsapp_funnel(st, secret, start_date, end_date, api=None):
         availability = fetch_live_contacts(base_url, token, start_date.isoformat(), end_date.isoformat(), [])
         since = stamp(availability["capture_since"])
         if datetime.combine(end_date, datetime.max.time(), tzinfo=ZoneInfo("America/New_York")) < since:
-            st.info("These dates precede automatic capture. Use Verified historical report for a reviewed snapshot.")
+            report = fetch_funnel_report(base_url, token, start_date.isoformat(), end_date.isoformat())
+            if report is None:
+                st.info("No verified historical report is available for the selected dates.")
+            else:
+                st.dataframe(report_rows(report), use_container_width=True, hide_index=True)
+                st.caption(f"Historical snapshot through {report['end']}. These dates precede live capture.")
             return
         baseline = st.cache_data(ttl=3600, show_spinner=False)(load_curve_baseline)
         patients, history, historical_ledger, historical_items, boundary = baseline(api, api.instance, start_date, now.date())
@@ -119,7 +114,7 @@ def render_whatsapp_funnel(st, secret, start_date, end_date, api=None):
         activity = fetch_live_contacts(base_url, token, start_date.isoformat(), end_date.isoformat(), patients)
         since = stamp(activity["capture_since"])
         if datetime.combine(end_date, datetime.max.time(), tzinfo=ZoneInfo("America/New_York")) < since:
-            st.info("These dates precede automatic capture. Use Verified historical report for a reviewed snapshot.")
+            st.info("The selected dates precede automatic capture.")
             return
         report = build_live_report(activity, appointments, ledger, items, now=now)
         st.dataframe(report_rows(report), use_container_width=True, hide_index=True)
@@ -129,6 +124,6 @@ def render_whatsapp_funnel(st, secret, start_date, end_date, api=None):
             st.warning(f"Partial coverage: automatic activity starts {since:%b %d, %Y %I:%M %p}. Earlier messages are not included in these live totals. Historical snapshots are separate.")
         st.caption("Each person counts once per date range. Shared phone matches and recent single messages remain In progress / match pending. A single message moves to Initial message, no further reply after 24 hours. Treatment requires a completed visit, a billed clinical procedure and collections over $49; formal acceptance is not inferred.")
     except LiveNotReady:
-        st.warning("Live capture is not available yet. The cloud receiver must be updated once. Historical snapshots remain available under Verified historical report.")
+        st.warning("Live capture is not available yet. The cloud receiver must be updated once. Historical reports use the same selected date range.")
     except Exception:
         st.warning("Live data could not be refreshed. Missing data is not replaced with zeros. Please try again shortly.")
