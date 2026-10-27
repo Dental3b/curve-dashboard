@@ -51,8 +51,8 @@ def render_whatsapp_funnel(st, secret, start_date, end_date):
     )
     logo_data = b64encode(whatsapp_logo.encode()).decode()
     st.markdown(
-        '<h3 style="display:flex;align-items:center;gap:10px;">'
-        f'<img src="data:image/svg+xml;base64,{logo_data}" width="30" height="30" alt="WhatsApp">'
+        '<h3 style="display:flex;align-items:center;gap:14px;">'
+        f'<img src="data:image/svg+xml;base64,{logo_data}" width="22" height="22" alt="WhatsApp">'
         'WhatsApp Funnel</h3>',
         unsafe_allow_html=True,
     )
