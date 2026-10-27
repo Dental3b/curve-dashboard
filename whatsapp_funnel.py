@@ -101,6 +101,20 @@ def render_whatsapp_funnel(st, secret, start_date, end_date, api=None):
                 st.dataframe(report_rows(report), use_container_width=True, hide_index=True)
                 st.caption(f"Historical snapshot through {report['end']}. These dates precede live capture.")
             return
+        if datetime.combine(start_date, datetime.min.time(), tzinfo=ZoneInfo("America/New_York")) < since:
+            historical_end = min(end_date, since.date() - timedelta(days=1))
+            if start_date <= historical_end:
+                verified = fetch_funnel_report(base_url, token, start_date.isoformat(), historical_end.isoformat())
+                if verified is not None:
+                    # An anonymous historical aggregate cannot be deduplicated against live contacts.
+                    # Keep one verified table instead of replacing it with a partial zero or inflating it.
+                    st.dataframe(report_rows(verified), use_container_width=True, hide_index=True)
+                    st.caption(f"Verified minimum through {verified['end']}. Live capture began {since:%b %d, %Y %I:%M %p}.")
+                    st.warning("The full selected range is not reconciled yet. Historical contacts must be matched to live contacts before these totals can include new activity without duplicates.")
+                    return
+        if not availability["contacts"]:
+            st.info(f"No incoming activity recorded since {since:%b %d, %Y %I:%M %p}. Earlier messages in the selected range have not been recovered; they are not counted as zero.")
+            return
         baseline = st.cache_data(ttl=3600, show_spinner=False)(load_curve_baseline)
         patients, history, historical_ledger, historical_items, boundary = baseline(api, api.instance, start_date, now.date())
         loader = st.cache_data(ttl=60, show_spinner=False)(load_live_curve)
