@@ -20,24 +20,24 @@ class ReportTest(unittest.TestCase):
     def test_agreed_categories_reconcile(self):
         report = example_report()
         self.assertEqual(validate_report(report), report)
-        self.assertEqual(report_rows(report)[0]["% del total"], "100.0%")
+        self.assertEqual(report_rows(report)[0]["% of contacts"], "100.0%")
 
     def test_combined_no_show_and_cancel_row(self):
         rows = report_rows(example_report())
-        labels = [r["Indicador"] for r in rows]
-        self.assertEqual(labels.count("No se presentaron / cancelaron"), 1)
-        self.assertEqual(next(r["Personas"] for r in rows if r["Indicador"] == "No se presentaron / cancelaron"), 10)
+        labels = [r["Metric"] for r in rows]
+        self.assertEqual(labels.count("No-shows / cancellations"), 1)
+        self.assertEqual(next(r["People"] for r in rows if r["Metric"] == "No-shows / cancellations"), 10)
 
     def test_unknown_is_not_zero(self):
         r = example_report()
         r["counts"]["paid_over_49_with_treatment"] = None
-        row = next(x for x in report_rows(r) if "realizaron tratamiento" in x["Indicador"])
-        self.assertEqual((row["Personas"], row["% del total"]), ("Por verificar", "—"))
+        row = next(x for x in report_rows(r) if "received treatment" in x["Metric"])
+        self.assertEqual((row["People"], row["% of contacts"]), ("Pending verification", "—"))
 
     def test_empty_report_has_no_misleading_conversion(self):
         r = example_report()
         r["counts"] = dict.fromkeys(COUNT_FIELDS, 0)
-        self.assertTrue(all(x["% del total"] == "—" for x in report_rows(r)))
+        self.assertTrue(all(x["% of contacts"] == "—" for x in report_rows(r)))
 
     def test_rejects_nonexclusive_contact_counts(self):
         r = example_report()

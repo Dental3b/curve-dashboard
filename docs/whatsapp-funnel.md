@@ -2,7 +2,7 @@
 
 The dashboard shows the agreed funnel as a table of people and percentages of contacts. Existing patients are classified at the time of their first observed message. They are excluded from the new-patient booking and attendance stages. A chat containing only outbound reminders is not evidence of patient acquisition through WhatsApp.
 
-No-shows and cancellations share one row: **No se presentaron / cancelaron**. Attendance, future visits and that combined outcome are exclusive person-level groups. A person who attended is not also counted as a no-show because of a later appointment. Remaining unresolved booking or payment outcomes have explicit rows.
+No-shows and cancellations share one row: **No-shows / cancellations**. Attendance, future visits and that combined outcome are exclusive person-level groups. A person who attended is not also counted as a no-show because of a later appointment. Remaining unresolved booking or payment outcomes have explicit rows.
 
 ## Configuration
 

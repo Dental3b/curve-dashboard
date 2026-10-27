@@ -9,16 +9,16 @@ COUNT_FIELDS = (
     "other_payment_outcome", "pending_visit", "no_show_or_cancelled", "other_booking_outcome",
 )
 METRICS = (
-    ("contacts", "Personas que escribieron"),
-    ("existing_patients", "Ya eran pacientes cuando escribieron"),
-    ("initial_no_response", "Mensaje inicial sin respuesta posterior"),
-    ("conversation_no_booking", "Conversaron, sin cita localizada en Curve"),
-    ("booked", "Agendaron antes de su primera visita"),
-    ("arrived", "Llegaron"),
-    ("paid_only_49", "Pagaron únicamente $49"),
-    ("paid_over_49_with_treatment", "Pagaron más de $49 y realizaron tratamiento"),
-    ("pending_visit", "Cita futura, pendientes de asistir"),
-    ("no_show_or_cancelled", "No se presentaron / cancelaron"),
+    ("contacts", "People who contacted us"),
+    ("existing_patients", "Existing patients when they contacted us"),
+    ("initial_no_response", "Initial message, no further reply"),
+    ("conversation_no_booking", "Chatted, no appointment found in Curve"),
+    ("booked", "Booked before their first visit"),
+    ("arrived", "Attended"),
+    ("paid_only_49", "Paid only $49"),
+    ("paid_over_49_with_treatment", "Paid over $49 and received treatment"),
+    ("pending_visit", "Future appointment, not yet attended"),
+    ("no_show_or_cancelled", "No-shows / cancellations"),
 )
 
 
@@ -77,13 +77,13 @@ def report_rows(report: dict) -> list[dict]:
     counts = report["counts"]
     metrics = list(METRICS)
     if counts["other_payment_outcome"] is None or counts["other_payment_outcome"] > 0:
-        metrics.append(("other_payment_outcome", "Otro resultado de pago / por verificar"))
+        metrics.append(("other_payment_outcome", "Other payment outcome / pending verification"))
     if counts["other_booking_outcome"] is None or counts["other_booking_outcome"] > 0:
-        metrics.append(("other_booking_outcome", "Estado de cita por verificar"))
+        metrics.append(("other_booking_outcome", "Appointment status pending verification"))
     total = counts["contacts"]
     return [
-        {"Indicador": label, "Personas": counts[key] if counts[key] is not None else "Por verificar",
-         "% del total": (f"{100 * counts[key] / total:.1f}%" if total else "—")
+        {"Metric": label, "People": counts[key] if counts[key] is not None else "Pending verification",
+         "% of contacts": (f"{100 * counts[key] / total:.1f}%" if total else "—")
          if counts[key] is not None else "—"}
         for key, label in metrics
     ]
