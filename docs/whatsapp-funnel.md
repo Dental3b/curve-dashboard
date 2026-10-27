@@ -1,5 +1,7 @@
 # Verified WhatsApp funnel
 
+For the automatic receiver and live dashboard, see [whatsapp-live.md](whatsapp-live.md). This document describes the separate historical snapshots.
+
 The dashboard shows the agreed funnel as a table of people and percentages of contacts. Existing patients are classified at the time of their first observed message. They are excluded from the new-patient booking and attendance stages. A chat containing only outbound reminders is not evidence of patient acquisition through WhatsApp.
 
 No-shows and cancellations share one row: **No-shows / cancellations**. Attendance, future visits and that combined outcome are exclusive person-level groups. A person who attended is not also counted as a no-show because of a later appointment. Remaining unresolved booking or payment outcomes have explicit rows.
@@ -41,7 +43,7 @@ The publishing helper uses the standard library and `gcloud`; it requires no ser
 
 The first partition is `existing_patients + initial_no_response + conversation_no_booking + booked = contacts`. Attendance and payment outcomes are nested under those bookings, not added to the contact partition. Payment outcomes appear as indented children immediately below first-appointment attendance and use `arrived` as their denominator. First-appointment bookings group future appointments, combined no-shows/cancellations and attendance in that order. Those outcomes use `booked` as their denominator; the group ends with attendance and its payment children. Other rows use `contacts`; each displayed share names its base. `paid_over_49_with_treatment` requires received funds above $49 and evidence of treatment, rather than an invoice alone. Deposits must be included once and credit transfers must not be counted as fresh collections. Formal treatment acceptance is not inferred from a future appointment alone.
 
-This change displays **verified snapshots**, not an automated acquisition pipeline. The deployed first-contact counter cannot reconstruct daily repeat activity, no-response status or a complete historic cohort. A separate capture and reconciliation job must be implemented before these figures can update automatically. Missing snapshots display a pending-data message. They never display invented zeros or the illustrative example as clinic data.
+This historical mode displays **verified snapshots**; live capture is implemented separately as documented in `whatsapp-live.md`. The deployed first-contact counter cannot reconstruct daily repeat activity, no-response status or a complete historic cohort. Historical aggregates cannot be merged into live activity without an identified backfill. Missing snapshots display a pending-data message. They never display invented zeros or the illustrative example as clinic data.
 
 ## Checks
 

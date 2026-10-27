@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import time
 from typing import Any
+from urllib.parse import urlsplit, parse_qs
 
 import requests
 
@@ -107,6 +108,8 @@ class CurveAPI:
                 next_path = next_path.lstrip("/")
             data = self._get(next_path, cheetah=True)
             objects.extend(data.get("objects") or [])
+        if data.get("meta", {}).get("next"):
+            raise RuntimeError("Curve ledger pagination incomplete")
         return objects
 
     def get_accounts_receivable(self) -> list[dict]:
@@ -129,12 +132,14 @@ class CurveAPI:
             page += 1
             next_url = data["meta"]["next"]
             if "pageToken=" in next_url:
-                token = next_url.split("pageToken=")[-1].split("&")[0]
+                token = parse_qs(urlsplit(next_url).query)["pageToken"][0]
                 params = {**params, "pageToken": token}
             else:
                 break
             data = self._get(path, params)
             objects.extend(data.get("objects") or [])
+        if data.get("meta", {}).get("next"):
+            raise RuntimeError("Curve pagination incomplete")
         return objects
 
     # --- Resources ---
@@ -185,12 +190,17 @@ class CurveAPI:
 
     def get_appointment_items(self, start_date: str, end_date: str) -> list[dict]:
         """Future (or any) appointment procedures with cost."""
-        data = self._get(
-            "appointment_items",
-            params={"startDate": start_date, "endDate": end_date},
-            cheetah=True,
-        )
-        return data.get("objects") or []
+        params = {"startDate": start_date, "endDate": end_date}
+        data = self._get("appointment_items", params=params, cheetah=True)
+        result = list(data.get("objects") or [])
+        for _ in range(100):
+            next_path = data.get("meta", {}).get("next")
+            if not next_path:
+                return result
+            next_path = next_path.removeprefix("/cheetah/").removeprefix("cheetah/")
+            data = self._get(next_path, cheetah=True)
+            result.extend(data.get("objects") or [])
+        raise RuntimeError("Curve appointment item pagination incomplete")
 
     def get_treatment_plans(self, max_pages: int = 20) -> list[dict]:
         """Fetch treatment plans."""

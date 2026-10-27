@@ -35,7 +35,7 @@ def validate_report(report: dict) -> dict:
     if not isinstance(report, dict):
         raise ValueError("Report must be an object")
     allowed = {"schema_version", "start", "end", "as_of", "timezone", "quality", "counts"}
-    if set(report) != allowed or report["schema_version"] != 1:
+    if set(report) != allowed or report["schema_version"] not in (1, 2):
         raise ValueError("Unsupported aggregate report schema")
     start, end = iso_date(report["start"]), iso_date(report["end"])
     if start > end:
@@ -48,7 +48,8 @@ def validate_report(report: dict) -> dict:
     if report["quality"] not in {"minimum_verified", "complete"}:
         raise ValueError("Invalid report quality")
     counts = report["counts"]
-    if not isinstance(counts, dict) or set(counts) != set(COUNT_FIELDS):
+    expected_counts = set(COUNT_FIELDS) | ({"pending_classification"} if report["schema_version"] == 2 else set())
+    if not isinstance(counts, dict) or set(counts) != expected_counts:
         raise ValueError("Unexpected count fields")
     for value in counts.values():
         if value is not None and (type(value) is not int or value < 0):
@@ -59,7 +60,7 @@ def validate_report(report: dict) -> dict:
         if value is not None and value > counts["contacts"]:
             raise ValueError("Stage exceeds contact count")
     partitions = (
-        ("contacts", ("existing_patients", "initial_no_response", "conversation_no_booking", "booked")),
+        ("contacts", ("existing_patients", "initial_no_response", "conversation_no_booking", "booked") + (("pending_classification",) if report["schema_version"] == 2 else ())),
         ("booked", ("arrived", "pending_visit", "no_show_or_cancelled", "other_booking_outcome")),
         ("arrived", ("paid_only_49", "paid_over_49_with_treatment", "other_payment_outcome")),
     )
@@ -76,6 +77,8 @@ def report_rows(report: dict) -> list[dict]:
     validate_report(report)
     counts = report["counts"]
     metrics = list(METRICS)
+    if report["schema_version"] == 2 and counts["pending_classification"]:
+        metrics.insert(4, ("pending_classification", "In progress / match pending"))
     payment_keys = {"paid_only_49", "paid_over_49_with_treatment", "other_payment_outcome"}
     booking_keys = {"arrived", "pending_visit", "no_show_or_cancelled", "other_booking_outcome"}
     if counts["other_payment_outcome"] is None or counts["other_payment_outcome"] > 0:

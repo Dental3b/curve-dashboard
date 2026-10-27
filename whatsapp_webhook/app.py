@@ -10,8 +10,10 @@ from google.cloud import firestore
 
 from logic import contact_key, extract_first_messages, verify_signature
 from funnel_report import iso_date, validate_report
+from live_capture import inbound_events, remember_event, aggregate_contacts, ACTIVITY
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
 CONTACTS_COLLECTION = os.environ.get("CONTACTS_COLLECTION", "d3b_whatsapp_first_contacts")
 FUNNEL_COLLECTION = os.environ.get("FUNNEL_COLLECTION", "d3b_whatsapp_funnel_reports")
 
@@ -84,6 +86,8 @@ def receive_webhook():
         )
         for sender, received_at in events:
             _remember_earliest_contact(db, sender, received_at, hash_secret)
+        for sender, event_id, stamp in inbound_events(payload, expected_phone_id):
+            remember_event(db, sender, event_id, stamp, hash_secret)
         return jsonify({"ok": True}), 200
     except Exception:
         app.logger.exception("WhatsApp webhook processing failed")
@@ -143,6 +147,11 @@ Meta provides WhatsApp messaging, and Google Cloud hosts the integration
 and its database. Their services process data under their respective
 terms and privacy policies.
 
+Daily activity also stores coded message identifiers to prevent duplicates,
+and coded contact identifiers, message counts, and timestamps. For matching,
+the reporting service processes patient phone numbers supplied by the
+internal dashboard in memory; these numbers are not stored in the counter.
+
 Counter records currently have no automatic expiration. They remain
 until Dental 3B deletes them or retires the integration.
 
@@ -160,7 +169,7 @@ email office@dental3b.com with the subject:
 Dental 3B Dashboard — Data deletion request
 
 Include the WhatsApp phone number you used, including its country code,
-so Dental 3B can identify the coded counter record. Do not include
+so Dental 3B can identify the coded counter record and daily activity records. Do not include
 medical details, identification documents, or passwords.
 
 Dental 3B may need to verify that you control the number before deleting
@@ -196,6 +205,60 @@ def funnel_summary():
     except Exception:
         app.logger.error("Verified funnel report unavailable")
         return jsonify({"error": "report unavailable"}), 503
+
+
+@app.post("/api/live-contacts")
+def live_contacts():
+    expected = os.environ.get("REPORT_API_TOKEN", "")
+    if not expected or not hmac.compare_digest(request.headers.get("Authorization", ""), f"Bearer {expected}"):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or set(payload) != {"start", "end", "patients"}:
+            raise ValueError()
+        start, end = iso_date(payload["start"]), iso_date(payload["end"])
+        if start > end or (end - start).days > 366:
+            raise ValueError()
+        candidates = payload["patients"]
+        if not isinstance(candidates, list) or len(candidates) > 5000:
+            raise ValueError()
+        for patient in candidates:
+            if not isinstance(patient, dict) or set(patient) != {"id", "phones"}:
+                raise ValueError()
+            if not isinstance(patient["id"], str) or not patient["id"].isdigit():
+                raise ValueError()
+            if not isinstance(patient["phones"], list) or len(patient["phones"]) > 5:
+                raise ValueError()
+            if any(not isinstance(phone, str) or len(phone) > 40 for phone in patient["phones"]):
+                raise ValueError()
+    except (ValueError, TypeError, KeyError):
+        return jsonify({"error": "invalid request"}), 400
+    since = os.environ.get("LIVE_CAPTURE_SINCE", "")
+    try:
+        stamp = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        if stamp.tzinfo is None:
+            raise ValueError()
+    except (ValueError, TypeError):
+        return jsonify({"error": "live capture not configured"}), 503
+    try:
+        query = (_firestore_client().collection(ACTIVITY)
+                 .where("day", ">=", start.isoformat()).where("day", "<=", end.isoformat()).limit(5001))
+        rows = [snap.to_dict() for snap in query.stream()]
+        if len(rows) > 5000:
+            return jsonify({"error": "date range too large"}), 422
+        contacts = aggregate_contacts(rows, candidates, _required_env("CONTACT_HASH_KEY"))
+        db = _firestore_client()
+        refs = [db.collection(CONTACTS_COLLECTION).document(row["key"]) for row in contacts]
+        earliest = {snap.id: (snap.to_dict() or {}).get("first_seen") for snap in db.get_all(refs)} if refs else {}
+        for row in contacts:
+            first = earliest.get(row["key"])
+            row["first_observed_at"] = first.isoformat() if first else row["first_received_at"]
+        return jsonify({"start": start.isoformat(), "end": end.isoformat(),
+                        "capture_since": stamp.isoformat(), "as_of": datetime.now(timezone.utc).isoformat(),
+                        "contacts": contacts})
+    except Exception:
+        app.logger.error("Live activity report unavailable")
+        return jsonify({"error": "live report unavailable"}), 503
 
 
 if __name__ == "__main__":

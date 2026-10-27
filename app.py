@@ -213,7 +213,11 @@ with col_logo:
 with col_title:
     st.title(clinic_name)
 
-render_whatsapp_funnel(st, _get_secret, start_date, end_date)
+@st.fragment(run_every="60s")
+def live_whatsapp_section():
+    render_whatsapp_funnel(st, _get_secret, start_date, end_date, api=get_api())
+
+live_whatsapp_section()
 st.markdown("---")
 
 # Labels for comparison (defined early)
