@@ -14,11 +14,11 @@ METRICS = (
     ("initial_no_response", "Initial message, no further reply"),
     ("conversation_no_booking", "People with no appointment found"),
     ("booked", "Booked for 1st appointment"),
-    ("arrived", "Attended 1st appointment"),
-    ("paid_only_49", " ↳ Consultation only ($49)"),
-    ("paid_over_49_with_treatment", " ↳ Paid over $49 + received treatment"),
-    ("pending_visit", "Future appointment, not yet attended"),
-    ("no_show_or_cancelled", "No-shows / cancellations"),
+    ("pending_visit", " ↳ Future appointments"),
+    ("no_show_or_cancelled", " ↳ No-shows / cancellations"),
+    ("arrived", " ↳ Attended 1st appointment"),
+    ("paid_only_49", "  ↳ Consultation only ($49)"),
+    ("paid_over_49_with_treatment", "  ↳ Paid over $49 + received treatment"),
 )
 
 
@@ -77,17 +77,18 @@ def report_rows(report: dict) -> list[dict]:
     counts = report["counts"]
     metrics = list(METRICS)
     payment_keys = {"paid_only_49", "paid_over_49_with_treatment", "other_payment_outcome"}
+    booking_keys = {"arrived", "pending_visit", "no_show_or_cancelled", "other_booking_outcome"}
     if counts["other_payment_outcome"] is None or counts["other_payment_outcome"] > 0:
-        insertion = next(i for i, (key, _) in enumerate(metrics) if key == "pending_visit")
-        metrics.insert(insertion, ("other_payment_outcome", " ↳ Other payment outcome / pending verification"))
+        metrics.append(("other_payment_outcome", "  ↳ Other payment outcome / pending verification"))
     if counts["other_booking_outcome"] is None or counts["other_booking_outcome"] > 0:
-        metrics.append(("other_booking_outcome", "Appointment status pending verification"))
+        insertion = next(i for i, (key, _) in enumerate(metrics) if key == "arrived")
+        metrics.insert(insertion, ("other_booking_outcome", " ↳ Appointment status pending verification"))
     rows = []
     for key, label in metrics:
         value = counts[key]
-        parent = "arrived" if key in payment_keys else "contacts"
+        parent = "arrived" if key in payment_keys else "booked" if key in booking_keys else "contacts"
         denominator = counts[parent]
-        basis = "attendees" if key in payment_keys else "contacts"
+        basis = "attendees" if key in payment_keys else "bookings" if key in booking_keys else "contacts"
         share = f"{100 * value / denominator:.1f}% of {basis}" if value is not None and denominator else "—"
         rows.append({"Metric": label, "People": value if value is not None else "Pending verification", "Share": share})
     return rows
