@@ -12,7 +12,7 @@ METRICS = (
     ("contacts", "People who contacted us"),
     ("existing_patients", "Existing patients when they contacted us"),
     ("initial_no_response", "Initial message, no further reply"),
-    ("conversation_no_booking", "People with no appointment found"),
+    ("conversation_no_booking", "Chatted, not booked"),
     ("booked", "Booked for 1st appointment"),
     ("pending_visit", " ↳ Future appointments"),
     ("no_show_or_cancelled", " ↳ No-shows / cancellations"),
