@@ -20,7 +20,7 @@ class ReportTest(unittest.TestCase):
     def test_agreed_categories_reconcile(self):
         report = example_report()
         self.assertEqual(validate_report(report), report)
-        self.assertEqual(report_rows(report)[0]["% of contacts"], "100.0%")
+        self.assertEqual(report_rows(report)[0]["Share"], "100.0% of contacts")
 
     def test_combined_no_show_and_cancel_row(self):
         rows = report_rows(example_report())
@@ -32,12 +32,38 @@ class ReportTest(unittest.TestCase):
         r = example_report()
         r["counts"]["paid_over_49_with_treatment"] = None
         row = next(x for x in report_rows(r) if "received treatment" in x["Metric"])
-        self.assertEqual((row["People"], row["% of contacts"]), ("Pending verification", "—"))
+        self.assertEqual((row["People"], row["Share"]), ("Pending verification", "—"))
 
     def test_empty_report_has_no_misleading_conversion(self):
         r = example_report()
         r["counts"] = dict.fromkeys(COUNT_FIELDS, 0)
-        self.assertTrue(all(x["% of contacts"] == "—" for x in report_rows(r)))
+        self.assertTrue(all(x["Share"] == "—" for x in report_rows(r)))
+
+    def test_payment_rows_follow_attendance_and_use_attendee_denominator(self):
+        rows = report_rows(example_report())
+        parent = next(i for i, row in enumerate(rows) if row["Metric"] == "Attended 1st appointment")
+        self.assertEqual(rows[parent]["People"], 25)
+        self.assertEqual(rows[parent + 1]["Metric"], " ↳ Consultation only ($49)")
+        self.assertEqual(rows[parent + 1]["Share"], "60.0% of attendees")
+        self.assertEqual(rows[parent + 2]["Metric"], " ↳ Paid over $49 + received treatment")
+        self.assertEqual(rows[parent + 2]["Share"], "40.0% of attendees")
+        self.assertEqual(rows[parent + 1]["People"] + rows[parent + 2]["People"], rows[parent]["People"])
+
+    def test_other_payment_stays_with_attendance_children(self):
+        report = example_report()
+        report["counts"].update(paid_only_49=14, other_payment_outcome=1)
+        rows = report_rows(report)
+        other = next(i for i, row in enumerate(rows) if "Other payment outcome" in row["Metric"])
+        future = next(i for i, row in enumerate(rows) if "Future appointment" in row["Metric"])
+        self.assertEqual(other + 1, future)
+        self.assertEqual(rows[other]["Share"], "4.0% of attendees")
+
+    def test_unknown_attendance_does_not_invent_payment_conversion(self):
+        report = example_report()
+        report["counts"]["arrived"] = None
+        for row in report_rows(report):
+            if "↳" in row["Metric"]:
+                self.assertEqual(row["Share"], "—")
 
     def test_rejects_nonexclusive_contact_counts(self):
         r = example_report()
@@ -116,3 +142,4 @@ class ClientTest(unittest.TestCase):
 
 
 if __name__ == "__main__": unittest.main()
+

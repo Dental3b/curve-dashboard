@@ -52,7 +52,7 @@ def render_whatsapp_funnel(st, secret, start_date, end_date):
             return
         st.dataframe(report_rows(report), use_container_width=True, hide_index=True)
         as_of = datetime.fromisoformat(report["as_of"].replace("Z", "+00:00")).astimezone(ZoneInfo(report["timezone"]))
-        st.caption(f"Data verified as of {as_of:%b %d, %Y %I:%M %p} · Percentages are based on people who contacted us.")
+        st.caption(f"Data verified as of {as_of:%b %d, %Y %I:%M %p} · Payment subrows are shares of attendees; other percentages are shares of contacts.")
         if report["quality"] == "minimum_verified":
             st.warning("Confirmed minimum: the reviewed history may not include every contact.")
         st.caption("Existing patients are separated first. Appointment and payment stages follow the same people. Treatment received is not proof of verified formal treatment acceptance.")

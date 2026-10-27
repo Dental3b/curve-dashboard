@@ -14,9 +14,9 @@ METRICS = (
     ("initial_no_response", "Initial message, no further reply"),
     ("conversation_no_booking", "People with no appointment found"),
     ("booked", "Booked for 1st appointment"),
-    ("arrived", "Attended"),
-    ("paid_only_49", "Paid only $49"),
-    ("paid_over_49_with_treatment", "Paid over $49 and received treatment"),
+    ("arrived", "Attended 1st appointment"),
+    ("paid_only_49", " ↳ Consultation only ($49)"),
+    ("paid_over_49_with_treatment", " ↳ Paid over $49 + received treatment"),
     ("pending_visit", "Future appointment, not yet attended"),
     ("no_show_or_cancelled", "No-shows / cancellations"),
 )
@@ -76,14 +76,19 @@ def report_rows(report: dict) -> list[dict]:
     validate_report(report)
     counts = report["counts"]
     metrics = list(METRICS)
+    payment_keys = {"paid_only_49", "paid_over_49_with_treatment", "other_payment_outcome"}
     if counts["other_payment_outcome"] is None or counts["other_payment_outcome"] > 0:
-        metrics.append(("other_payment_outcome", "Other payment outcome / pending verification"))
+        insertion = next(i for i, (key, _) in enumerate(metrics) if key == "pending_visit")
+        metrics.insert(insertion, ("other_payment_outcome", " ↳ Other payment outcome / pending verification"))
     if counts["other_booking_outcome"] is None or counts["other_booking_outcome"] > 0:
         metrics.append(("other_booking_outcome", "Appointment status pending verification"))
-    total = counts["contacts"]
-    return [
-        {"Metric": label, "People": counts[key] if counts[key] is not None else "Pending verification",
-         "% of contacts": (f"{100 * counts[key] / total:.1f}%" if total else "—")
-         if counts[key] is not None else "—"}
-        for key, label in metrics
-    ]
+    rows = []
+    for key, label in metrics:
+        value = counts[key]
+        parent = "arrived" if key in payment_keys else "contacts"
+        denominator = counts[parent]
+        basis = "attendees" if key in payment_keys else "contacts"
+        share = f"{100 * value / denominator:.1f}% of {basis}" if value is not None and denominator else "—"
+        rows.append({"Metric": label, "People": value if value is not None else "Pending verification", "Share": share})
+    return rows
+
