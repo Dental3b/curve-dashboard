@@ -12,7 +12,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from curve_api import CurveAPI
+from curve_api import CurveAPI, _get_secret
+from whatsapp_funnel import render_whatsapp_funnel
+from zoneinfo import ZoneInfo
 
 st.set_page_config(
     page_title="Curve Dental Dashboard",
@@ -129,7 +131,7 @@ def status_bucket(status: str) -> str:
 st.sidebar.title("🦷 Curve Dental")
 st.sidebar.caption("Practice Dashboard")
 
-today = datetime.now().date()
+today = datetime.now(ZoneInfo("America/New_York")).date()
 # Month to date by default
 mtd_start = today.replace(day=1)
 default_start = mtd_start
@@ -210,6 +212,9 @@ with col_logo:
         st.image(logo_path, width=180)
 with col_title:
     st.title(clinic_name)
+
+render_whatsapp_funnel(st, _get_secret, start_date, end_date)
+st.markdown("---")
 
 # Labels for comparison (defined early)
 prev_label = prev_month_start.strftime("%b %Y")
@@ -702,3 +707,4 @@ else:
 
 st.markdown("---")
 st.caption("Data from Curve Hero API. Production and payments from ledger entries. $49 = new patient fee invoices.")
+
