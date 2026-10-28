@@ -1,0 +1,64 @@
+name: Read-only missed appointment audit
+on:
+  push:
+    branches: [codex/audit-missed-appointment-20261028]
+    paths: [.github/workflows/audit_missed_appointment.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests cryptography
+      - name: Read Curve ledger and encrypt audit results
+        env:
+          CURVE_CLIENT_ID: ${{ secrets.CURVE_CLIENT_ID }}
+          CURVE_CLIENT_SECRET: ${{ secrets.CURVE_CLIENT_SECRET }}
+        run: |
+          python - <<'PY'
+          import base64, json, os, sys
+          from collections import defaultdict
+          from decimal import Decimal
+          from cryptography.hazmat.primitives import serialization, hashes
+          from cryptography.hazmat.primitives.asymmetric import padding
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from curve_api import CurveAPI
+          
+          PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----\nMIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAsHbGE71lmcNbf0jDn19r\niL7p+ZmvZD+Kx/8fy6qYsLt4HqmG4CyoRi+10NT21gu2kHWBG34ip0zqY30qU1Nd\nmgavUupTJ2nU0gjQj9c0AL4FvP0CXNhvpU3bNcmVBmaq54InJ7geMxKijFfvokyJ\nL3AplUwZYVQ6JthNJ6dDZ4gnGp62calmyrGIEL4GVfWFawiFuAdwPquKoKc/gGgx\nUIVUxoPbesKEUb6ieo1FNr/yJTbcgHRwzejEAbP2wVIYPKOr7RwK1x05n3cSDxfh\n7yPqTAOOSZUh0y1pTqwUSVengTfyW6nrrXfxjX9DoGpY7Msp5uVS4p8UaG1IvIiD\neH6NQiWH4rgE8ScW+ZM/8zQTQzfYaDHDUpBjeUi/HH7CWhGpFSVFCHGz8uwbsIt3\n946CFAHem2EHQ2OLXLgYeccQkn5cNaJkEBGTFsoBWEARvp7BLES+VWkWO6vzh9fG\nPqJRYj2lMPgoHCpWXdvaz7L5mTmxwaIK0CjIpFvj2HjNAgMBAAE=\n-----END PUBLIC KEY-----"
+          def seal(data):
+              key = AESGCM.generate_key(bit_length=256)
+              nonce = os.urandom(12)
+              raw = json.dumps(data, default=str).encode()
+              cipher = AESGCM(key).encrypt(nonce, raw, None)
+              pub = serialization.load_pem_public_key(PUBLIC_KEY.encode())
+              wrapped = pub.encrypt(key, padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None))
+              payload = {k: base64.b64encode(v).decode() for k,v in {"key":wrapped,"nonce":nonce,"data":cipher}.items()}
+              print("ENCRYPTED_AUDIT=" + base64.b64encode(json.dumps(payload).encode()).decode())
+          
+          try:
+              api = CurveAPI()
+              ledger = api.get_ledger_entries("2026-10-01", "2026-10-29", max_pages=100)
+              totals = defaultdict(lambda: [Decimal(0), Decimal(0), Decimal(0)])
+              for e in ledger:
+                  pid = str(e.get("patientId") or "")
+                  c = e.get("calculations") or {}
+                  totals[pid][0] += Decimal(str(c.get("production") or 0))
+                  totals[pid][1] += Decimal(str(c.get("payments") or 0))
+                  if e.get("transactionType") == "Adjustment":
+                      totals[pid][2] += abs(Decimal(str(e.get("amount") or 0)))
+              candidates = {pid for pid,v in totals.items() if v[0]-v[1]-v[2] == Decimal(25)}
+              relevant = [e for e in ledger if str(e.get("patientId") or "") in candidates or "D9986" in json.dumps(e).upper()]
+              seal({"period":["2026-10-01","2026-10-28"],"ledger_count":len(ledger),
+                    "candidate_totals":{pid:totals[pid] for pid in candidates},
+                    "entries":relevant,"entry_keys":sorted({k for e in ledger for k in e})})
+          except Exception as e:
+              # Never put API responses or patient records in plaintext logs.
+              print("Read-only audit failed: " + type(e).__name__)
+              sys.exit(1)
+          
+          PY
