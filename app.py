@@ -125,6 +125,36 @@ def status_bucket(status: str) -> str:
     return status or "Other"
 
 
+
+def group_missed_appointment_balances(pending_rows, entries):
+    """Group only balances fully reconciled to D9986 in the same ledger period.
+
+    Use signed AR movements so payments, reversals, and provider corrections
+    are not counted as new charges. Mixed or unmatched balances stay visible.
+    """
+    from collections import defaultdict
+    from decimal import Decimal
+
+    by_patient = defaultdict(lambda: Decimal(0))
+    for entry in entries:
+        code = str(entry.get("insuranceCode") or "").strip().upper()
+        if code != "D9986":
+            continue
+        patient_id = str(entry.get("patientId") or "")
+        calculations = entry.get("calculations") or {}
+        by_patient[patient_id] += Decimal(
+            str(calculations.get("changeInAccountsReceivable") or 0)
+        )
+    other_rows, missed_rows = [], []
+    for row in pending_rows:
+        balance = Decimal(row["Balance"].replace("$", "").replace(",", ""))
+        if balance > 0 and by_patient[str(row["Patient ID"])] == balance:
+            missed_rows.append(dict(row))
+        else:
+            other_rows.append(dict(row))
+    return other_rows, missed_rows
+
+
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
@@ -656,24 +686,54 @@ if ar_ledger:
         pending_rows.sort(key=lambda r: r.get("_sort", "9999"))
         for r in pending_rows:
             del r["_sort"]
+        other_rows, missed_rows = group_missed_appointment_balances(pending_rows, ar_ledger)
+        missed_total = sum(
+            (Decimal(r["Balance"].replace("$", "").replace(",", "")) for r in missed_rows),
+            Decimal(0),
+        )
+        display_rows = [dict(r, Count=1) for r in other_rows]
+        if missed_rows:
+            display_rows.append({
+                "Patient ID": "D9986",
+                "Name": "Missed Appointment",
+                "Production": "—",
+                "Paid": "—",
+                "Adj": "—",
+                "Balance": f"${missed_total:,.2f}",
+                "Visits left": "—",
+                "Next appointment": "See detail",
+                "Count": len(missed_rows),
+            })
         st.dataframe(
-            pd.DataFrame(pending_rows),
+            pd.DataFrame(display_rows),
             use_container_width=True,
             hide_index=True,
-            height=min(400, 40 + 35 * len(pending_rows)),
+            height=min(400, 40 + 35 * len(display_rows)),
+            column_order=["Patient ID", "Name", "Count", "Production", "Paid", "Adj",
+                          "Balance", "Visits left", "Next appointment"],
             column_config={
+                "Patient ID": st.column_config.TextColumn("ID"),
+                "Count": st.column_config.NumberColumn("Patients", format="%d", width="small"),
                 "Visits left": st.column_config.TextColumn("Left", width="small"),
             },
         )
+        if missed_rows:
+            with st.expander(f"Missed Appointment · {len(missed_rows)} patients · ${missed_total:,.2f}"):
+                st.dataframe(pd.DataFrame(missed_rows), use_container_width=True, hide_index=True)
+                st.caption(
+                    "Grouped by D9986 ledger movements, including payments and reversals. "
+                    "Only balances fully matched to this code are grouped; mixed balances stay individual."
+                )
         total_pending = sum(Decimal(r["Balance"].replace("$","").replace(",","")) for r in pending_rows)
-        no_appt = [r for r in pending_rows if r.get("Visits left", "0") == "0"]
+        no_appt = [r for r in other_rows if r.get("Visits left", "0") == "0"]
         no_appt_total = sum(Decimal(r["Balance"].replace("$","").replace(",","")) for r in no_appt)
-        with_appt = [r for r in pending_rows if r.get("Visits left", "0") != "0"]
+        with_appt = [r for r in other_rows if r.get("Visits left", "0") != "0"]
         with_appt_total = sum(Decimal(r["Balance"].replace("$","").replace(",","")) for r in with_appt)
         col1, col2 = st.columns(2)
         with col1:
             st.caption(f"With appointments: {len(with_appt)} patients · ${with_appt_total:,.2f}")
             st.caption(f"No appointment: {len(no_appt)} patients · ${no_appt_total:,.2f}")
+            st.caption(f"Missed Appointment: {len(missed_rows)} patients · ${missed_total:,.2f}")
             st.caption(f"**Total: {len(pending_rows)} patients · ${total_pending:,.2f}**")
         with col2:
             adj_by_type = {}
@@ -693,14 +753,14 @@ if ar_ledger:
             total_patients = len(set().union(*[d["patients"] for d in adj_by_type.values()])) if adj_by_type else 0
             st.caption(f"**Write-offs: {total_patients} patients · ${total_adj:,.2f} ({adj_pct:.1f}%)**")
         # Pie chart
-        if with_appt_total > 0 or no_appt_total > 0:
+        if with_appt_total > 0 or no_appt_total > 0 or missed_total > 0:
             import plotly.express as px
             pie_df = pd.DataFrame({
-                "Category": ["With appointments", "No appointment"],
-                "Amount": [float(with_appt_total), float(no_appt_total)],
+                "Category": ["With appointments", "No appointment", "Missed Appointment"],
+                "Amount": [float(with_appt_total), float(no_appt_total), float(missed_total)],
             })
             fig = px.pie(pie_df, values="Amount", names="Category", 
-                         color_discrete_sequence=["#2ecc71", "#e74c3c"])
+                         color_discrete_sequence=["#2ecc71", "#e74c3c", "#f39c12"])
             fig.update_traces(texttemplate="$%{value:,.0f}<br>%{percent}")
             fig.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=250, showlegend=True)
             st.plotly_chart(fig, use_container_width=True)
