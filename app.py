@@ -691,39 +691,66 @@ if ar_ledger:
             (Decimal(r["Balance"].replace("$", "").replace(",", "")) for r in missed_rows),
             Decimal(0),
         )
-        display_rows = [dict(r, Count=1) for r in other_rows]
-        if missed_rows:
-            display_rows.append({
-                "Patient ID": "D9986",
-                "Name": "Missed Appointment",
-                "Production": "—",
-                "Paid": "—",
-                "Adj": "—",
-                "Balance": f"${missed_total:,.2f}",
-                "Visits left": "—",
-                "Next appointment": "See detail",
-                "Count": len(missed_rows),
-            })
+        st.markdown("#### Regular AR")
+        regular_total = sum(
+            (Decimal(r["Balance"].replace("$", "").replace(",", "")) for r in other_rows),
+            Decimal(0),
+        )
+        regular_display = [dict(r) for r in other_rows]
+        regular_summary = {
+            "Patient ID": "", "Name": f"TOTAL · {len(other_rows)} patients",
+            "Visits left": "", "Next appointment": "",
+        }
+        for column in ("Production", "Paid", "Adj", "Balance"):
+            amount = sum(
+                (Decimal(r[column].replace("$", "").replace(",", "")) for r in other_rows),
+                Decimal(0),
+            )
+            regular_summary[column] = f"${amount:,.2f}"
+        regular_display.append(regular_summary)
         st.dataframe(
-            pd.DataFrame(display_rows),
+            pd.DataFrame(regular_display),
             use_container_width=True,
             hide_index=True,
-            height=min(400, 40 + 35 * len(display_rows)),
-            column_order=["Patient ID", "Name", "Count", "Production", "Paid", "Adj",
+            height=min(600, 40 + 35 * len(regular_display)),
+            column_order=["Patient ID", "Name", "Production", "Paid", "Adj",
                           "Balance", "Visits left", "Next appointment"],
             column_config={
                 "Patient ID": st.column_config.TextColumn("ID"),
-                "Count": st.column_config.NumberColumn("Patients", format="%d", width="small"),
                 "Visits left": st.column_config.TextColumn("Left", width="small"),
             },
         )
-        if missed_rows:
-            with st.expander(f"Missed Appointment · {len(missed_rows)} patients · ${missed_total:,.2f}"):
-                st.dataframe(pd.DataFrame(missed_rows), use_container_width=True, hide_index=True)
-                st.caption(
-                    "Grouped by D9986 ledger movements, including payments and reversals. "
-                    "Only balances fully matched to this code are grouped; mixed balances stay individual."
-                )
+        st.markdown(f"**Total Regular AR: ${regular_total:,.2f}**")
+
+        st.markdown("#### Missed Appointment · D9986")
+        missed_display = [
+            {
+                "Patient ID": r["Patient ID"],
+                "Name": r["Name"],
+                "Code": "D9986",
+                "Balance": r["Balance"],
+                "Visits left": r["Visits left"],
+                "Next appointment": r["Next appointment"],
+            }
+            for r in missed_rows
+        ]
+        missed_display.append({
+            "Patient ID": "", "Name": f"TOTAL · {len(missed_rows)} patients",
+            "Code": "D9986", "Balance": f"${missed_total:,.2f}",
+            "Visits left": "", "Next appointment": "",
+        })
+        st.dataframe(
+            pd.DataFrame(missed_display),
+            use_container_width=True,
+            hide_index=True,
+            height=min(650, 40 + 35 * len(missed_display)),
+            column_config={
+                "Patient ID": st.column_config.TextColumn("ID"),
+                "Visits left": st.column_config.TextColumn("Left", width="small"),
+            },
+        )
+        st.markdown(f"**Total Missed Appointment: ${missed_total:,.2f}**")
+        st.markdown(f"**Total AR: ${regular_total + missed_total:,.2f}**")
         total_pending = sum(Decimal(r["Balance"].replace("$","").replace(",","")) for r in pending_rows)
         no_appt = [r for r in other_rows if r.get("Visits left", "0") == "0"]
         no_appt_total = sum(Decimal(r["Balance"].replace("$","").replace(",","")) for r in no_appt)
