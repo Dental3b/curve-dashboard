@@ -84,6 +84,16 @@ class CurveAPI:
         else:
             url = f"{self.base_url}/{path.lstrip('/')}"
         resp = requests.get(url, headers=self._headers(), params=params, timeout=60)
+        if resp.status_code in (401, 403):
+            # A cached client can outlive an invalidated access token. Renew once;
+            # a persistent permission denial must still reach the caller.
+            self._token = None
+            self._token_expires_at = 0
+            resp = requests.get(url, headers=self._headers(), params=params, timeout=60)
+        elif resp.status_code in (502, 503, 504):
+            # Retry an idempotent read once after a temporary gateway failure.
+            time.sleep(1)
+            resp = requests.get(url, headers=self._headers(), params=params, timeout=60)
         resp.raise_for_status()
         return resp.json()
 
@@ -229,3 +239,4 @@ class CurveAPI:
                 url = None
             page += 1
         return objects
+

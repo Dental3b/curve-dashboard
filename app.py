@@ -190,6 +190,7 @@ if prev_end_date > prev_month_end:
 st.sidebar.markdown("---")
 if st.sidebar.button("🔄 Refresh data", use_container_width=True):
     st.cache_data.clear()
+    get_api.clear()
     st.rerun()
 
 st.sidebar.markdown("---")
@@ -226,7 +227,7 @@ try:
     prev_full_ledger = load_ledger(prev_month_start.isoformat(), prev_month_end_full.isoformat())
 except Exception as e:
     st.error(f"Could not load data from Curve API: {e}")
-    st.info("Check your `.env` credentials (CURVE_CLIENT_ID, CURVE_CLIENT_SECRET, CURVE_INSTANCE).")
+    st.info("Click Refresh data to renew the Curve connection. If access is still denied, check the app's Curve API permissions and Secrets.")
     st.stop()
 
 clinic_name = clinics[0].get("name", "Practice") if clinics else "Practice"
@@ -798,4 +799,5 @@ else:
 
 st.markdown("---")
 st.caption("Data from Curve Hero API. Production and payments from ledger entries. $49 = new patient fee invoices.")
+
 
