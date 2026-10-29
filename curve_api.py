@@ -94,6 +94,17 @@ class CurveAPI:
             # Retry an idempotent read once after a temporary gateway failure.
             time.sleep(1)
             resp = requests.get(url, headers=self._headers(), params=params, timeout=60)
+        if (
+            not cheetah
+            and path.strip('/') in {'clinic', 'staff', 'appointment', 'patient'}
+            and resp.status_code in (403, 502, 503, 504)
+        ):
+            # These read resources expose the same response shape on the
+            # authenticated tenant API. Keep all filters and pagination tokens.
+            tenant_url = f"{self.cheetah_url}/{path.lstrip('/')}"
+            resp = requests.get(
+                tenant_url, headers=self._headers(), params=params, timeout=60
+            )
         resp.raise_for_status()
         return resp.json()
 

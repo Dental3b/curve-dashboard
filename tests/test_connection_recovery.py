@@ -35,10 +35,30 @@ class ConnectionRecoveryTest(unittest.TestCase):
     @patch('curve_api.requests.get')
     def test_persistent_denial_is_not_hidden(self, get):
         api = CurveAPI('id', 'secret', 'test')
-        get.side_effect = [response(403), response(403)]
+        get.side_effect = [response(403), response(403), response(403)]
         with patch.object(api, '_get_token', return_value='token'):
             with self.assertRaises(requests.HTTPError):
                 api.get_clinics()
+        self.assertEqual(get.call_count, 3)
+
+    @patch('curve_api.requests.get')
+    def test_tenant_read_preserves_filters_and_token(self, get):
+        api = CurveAPI('id', 'secret', 'test')
+        params = {'pageToken': 'page+2', 'startDate': '2026-10-29'}
+        get.side_effect = [response(403), response(403), response(200, {'objects': []})]
+        with patch.object(api, '_get_token', return_value='token'):
+            self.assertEqual(api._get('appointment', params), {'objects': []})
+        self.assertEqual(get.call_args.args[0], 'https://test.curvehero.com/cheetah/appointment')
+        self.assertEqual(get.call_args.kwargs['params'], params)
+        self.assertEqual(get.call_args.kwargs['headers']['Authorization'], 'Bearer token')
+
+    @patch('curve_api.requests.get')
+    def test_tenant_denial_does_not_loop(self, get):
+        api = CurveAPI('id', 'secret', 'test')
+        get.side_effect = [response(403), response(403)]
+        with patch.object(api, '_get_token', return_value='token'):
+            with self.assertRaises(requests.HTTPError):
+                api._get('clinic', cheetah=True)
         self.assertEqual(get.call_count, 2)
 
     @patch('curve_api.time.sleep')
