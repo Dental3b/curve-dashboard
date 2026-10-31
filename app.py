@@ -57,6 +57,8 @@ def load_staff():
 def load_appointments(start_str: str, end_str: str):
     start = datetime.strptime(start_str, "%Y-%m-%d")
     end = datetime.strptime(end_str, "%Y-%m-%d") + timedelta(hours=23, minutes=59, seconds=59)
+    if start > end:
+        return []
     return get_api().get_appointments(start, end)
 
 
@@ -69,6 +71,8 @@ def load_ledger(start_str: str, end_str: str):
 
 @st.cache_data(ttl=180)
 def load_appointment_items(start_str: str, end_str: str):
+    if datetime.strptime(start_str, "%Y-%m-%d") > datetime.strptime(end_str, "%Y-%m-%d"):
+        return []
     return get_api().get_appointment_items(start_str, end_str)
 
 
@@ -210,9 +214,10 @@ try:
     month_end = month_end.replace(day=1) - timedelta(days=1)
     future_start = (end_date + timedelta(days=1)).isoformat()
     future_end = month_end.isoformat()
-    future_appts = load_appointments(future_start, future_end)
+    has_remaining_days = end_date < month_end
+    future_appts = load_appointments(future_start, future_end) if has_remaining_days else []
     future_df = appts_to_df(future_appts)
-    future_items = load_appointment_items(future_start, future_end)
+    future_items = load_appointment_items(future_start, future_end) if has_remaining_days else []
     try:
         treatment_plans = load_treatment_plans()
     except Exception:
@@ -528,7 +533,10 @@ else:
 # 3. Scheduled Treatments (rest of month)
 # ---------------------------------------------------------------------------
 st.subheader("4. Scheduled Treatments (rest of month)")
-st.caption(f"Looking from {future_start} to {future_end} · {len(future_appts)} appointments · {len(future_items)} items")
+if has_remaining_days:
+    st.caption(f"Looking from {future_start} to {future_end} · {len(future_appts)} appointments · {len(future_items)} items")
+else:
+    st.caption("No remaining days in the selected month.")
 if future_items:
     appt_lookup = {str(row["id"]): row for _, row in future_df.iterrows()} if not future_df.empty else {}
     treat_rows = []
@@ -587,7 +595,7 @@ if future_items:
     else:
         st.info("No scheduled treatments with cost for the rest of the month.")
 else:
-    st.info("No future appointment data.")
+    st.info("No scheduled treatments remaining in the selected month." if not has_remaining_days else "No future appointment data.")
 
 # ---------------------------------------------------------------------------
 # 5. Accounts Receivable
