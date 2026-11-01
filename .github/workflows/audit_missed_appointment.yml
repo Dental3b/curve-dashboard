@@ -1,4 +1,4 @@
-name: Read-only treatment plan API capability check
+name: Authorized test contact note
 on:
   push:
     branches: [codex/audit-missed-appointment-20261028]
@@ -15,61 +15,54 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install requests cryptography
-      - name: Check treatment plan response schema without patient values
+      - name: Create and verify authorized test note
         env:
           CURVE_CLIENT_ID: ${{ secrets.CURVE_CLIENT_ID }}
           CURVE_CLIENT_SECRET: ${{ secrets.CURVE_CLIENT_SECRET }}
         run: |
           python - <<'PY'
-          import base64, json, os, sys
-          from collections import defaultdict
-          from decimal import Decimal
-          from cryptography.hazmat.primitives import serialization, hashes
-          from cryptography.hazmat.primitives.asymmetric import padding
-          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-          from curve_api import CurveAPI
-          
-          PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----\nMIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAsHbGE71lmcNbf0jDn19r\niL7p+ZmvZD+Kx/8fy6qYsLt4HqmG4CyoRi+10NT21gu2kHWBG34ip0zqY30qU1Nd\nmgavUupTJ2nU0gjQj9c0AL4FvP0CXNhvpU3bNcmVBmaq54InJ7geMxKijFfvokyJ\nL3AplUwZYVQ6JthNJ6dDZ4gnGp62calmyrGIEL4GVfWFawiFuAdwPquKoKc/gGgx\nUIVUxoPbesKEUb6ieo1FNr/yJTbcgHRwzejEAbP2wVIYPKOr7RwK1x05n3cSDxfh\n7yPqTAOOSZUh0y1pTqwUSVengTfyW6nrrXfxjX9DoGpY7Msp5uVS4p8UaG1IvIiD\neH6NQiWH4rgE8ScW+ZM/8zQTQzfYaDHDUpBjeUi/HH7CWhGpFSVFCHGz8uwbsIt3\n946CFAHem2EHQ2OLXLgYeccQkn5cNaJkEBGTFsoBWEARvp7BLES+VWkWO6vzh9fG\nPqJRYj2lMPgoHCpWXdvaz7L5mTmxwaIK0CjIpFvj2HjNAgMBAAE=\n-----END PUBLIC KEY-----"
-          def seal(data):
-              key = AESGCM.generate_key(bit_length=256)
-              nonce = os.urandom(12)
-              raw = json.dumps(data, default=str).encode()
-              cipher = AESGCM(key).encrypt(nonce, raw, None)
-              pub = serialization.load_pem_public_key(PUBLIC_KEY.encode())
-              wrapped = pub.encrypt(key, padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None))
-              payload = {k: base64.b64encode(v).decode() for k,v in {"key":wrapped,"nonce":nonce,"data":cipher}.items()}
-              print("ENCRYPTED_AUDIT=" + base64.b64encode(json.dumps(payload).encode()).decode())
-          
-          try:
-              import requests
-              from urllib.parse import urljoin, urlsplit
-              api=CurveAPI()
-              base=f"https://{api.instance}.curvehero.com"
-              def get(url):
-                  url=urljoin(base,url)
-                  if urlsplit(url).netloc != urlsplit(base).netloc: raise ValueError("Unexpected link host")
-                  r=requests.get(url,headers=api._headers(),timeout=60)
-                  r.raise_for_status()
-                  return r.json()
-              url=base+"/api/v2/treatment_plan"
-              selected=[]
-              pages=0
-              while url and pages<30:
-                  data=get(url)
-                  for p in data.get("objects",[]):
-                      if str(p.get("createdAt",""))>="2026-10-01" and len(p.get("visits") or [])>=2:
-                          selected.append(p)
-                  nxt=(data.get("meta") or {}).get("next")
-                  url=urljoin(url,nxt) if nxt else None
-                  pages+=1
-              selected=sorted(selected,key=lambda p:p.get("createdAt",""),reverse=True)[:12]
-              output=[]
-              for p in selected:
-                  detail=get(p["self"]) if p.get("self") else p
-                  output.append({"plan":p,"detail":detail})
-              seal({"pages":pages,"complete":not url,"candidates":output})
-          except Exception as e:
-              print("Read-only search failed: "+type(e).__name__)
+          import os, sys, requests
+          from urllib.parse import urljoin, urlsplit
+          base="https://dentalthreeb.curvehero.com"
+          def stop(label, code=None):
+              print(label, code if code is not None else "")
               sys.exit(1)
+          r=requests.post("https://sso.curvehero.com/connect/token",data={"grant_type":"client_credentials","client_id":os.environ["CURVE_CLIENT_ID"],"client_secret":os.environ["CURVE_CLIENT_SECRET"],"scope":"notes.contact:read notes.contact:write clinic:read patient:read"},timeout=30)
+          print("TOKEN_STATUS",r.status_code)
+          if not r.ok: stop("TOKEN_SCOPE_REQUEST_FAILED")
+          headers={"Authorization":"Bearer "+r.json()["access_token"]}
+          def get(path):
+              url=urljoin(base,path)
+              if urlsplit(url).netloc!=urlsplit(base).netloc: stop("UNEXPECTED_HOST")
+              response=requests.get(url,headers=headers,timeout=45)
+              if not response.ok: stop("READ_FAILED",response.status_code)
+              return response.json()
+          notes=get("/api/v2/contact/163/note")
+          rows=notes.get("objects",[])
+          refs=[n.get("contact",{}).get("href") for n in rows if str(n.get("contact",{}).get("id"))=="163"]
+          if not refs: stop("CONTACT_IDENTITY_LINK_UNAVAILABLE_NO_WRITE")
+          contact=get(refs[0])
+          first=str(contact.get("firstName",contact.get("firstname",""))).strip().lower()
+          last=str(contact.get("lastName",contact.get("lastname",""))).strip().lower()
+          if first+" "+last!="test new": stop("CONTACT_NAME_NOT_VERIFIED_NO_WRITE")
+          print("CONTACT_TEST_IDENTITY_VERIFIED")
+          from curve_api import CurveAPI
+          clinics=CurveAPI().get_clinics()
+          if len(clinics)!=1: stop("CLINIC_NOT_UNAMBIGUOUS_NO_WRITE")
+          clinic_id=str(clinics[0]["id"])
+          description="<p>Prueba de integración API — Test New. No contiene información clínica.</p>"
+          if any(n.get("description")==description for n in rows):
+              print("TEST_NOTE_ALREADY_PRESENT")
+              sys.exit(0)
+          response=requests.post(base+"/api/v2/contact/163/note",headers=headers,json={"clinicId":clinic_id,"description":description,"tags":["Correspondence"]},timeout=45)
+          print("CREATE_STATUS",response.status_code)
+          if not response.ok: stop("CREATE_FAILED")
+          created=response.json()
+          nid=str(created.get("id",""))
+          print("CREATED_NOTE_ID",nid)
+          verify=get("/api/v2/contact/163/note?order=RecentFirst")
+          matched=any(str(n.get("id"))==nid and n.get("description")==description for n in verify.get("objects",[]))
+          print("NOTE_READBACK_VERIFIED",matched)
+          if not matched: sys.exit(1)
           
           PY
