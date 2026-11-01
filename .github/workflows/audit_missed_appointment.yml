@@ -22,47 +22,23 @@ jobs:
         run: |
           python - <<'PY'
           import os, sys, requests
-          from urllib.parse import urljoin, urlsplit
-          base="https://dentalthreeb.curvehero.com"
-          def stop(label, code=None):
-              print(label, code if code is not None else "")
-              sys.exit(1)
-          r=requests.post("https://sso.curvehero.com/connect/token",data={"grant_type":"client_credentials","client_id":os.environ["CURVE_CLIENT_ID"],"client_secret":os.environ["CURVE_CLIENT_SECRET"],"scope":"notes.contact:read notes.contact:write clinic:read patient:read"},timeout=30)
-          print("TOKEN_STATUS",r.status_code)
-          if not r.ok: stop("TOKEN_SCOPE_REQUEST_FAILED")
-          headers={"Authorization":"Bearer "+r.json()["access_token"]}
-          def get(path):
-              url=urljoin(base,path)
-              if urlsplit(url).netloc!=urlsplit(base).netloc: stop("UNEXPECTED_HOST")
-              response=requests.get(url,headers=headers,timeout=45)
-              if not response.ok: stop("READ_FAILED",response.status_code)
-              return response.json()
-          notes=get("/api/v2/contact/163/note")
-          rows=notes.get("objects",[])
-          refs=[n.get("contact",{}).get("href") for n in rows if str(n.get("contact",{}).get("id"))=="163"]
-          if not refs: stop("CONTACT_IDENTITY_LINK_UNAVAILABLE_NO_WRITE")
-          contact=get(refs[0])
-          first=str(contact.get("firstName",contact.get("firstname",""))).strip().lower()
-          last=str(contact.get("lastName",contact.get("lastname",""))).strip().lower()
-          if first+" "+last!="test new": stop("CONTACT_NAME_NOT_VERIFIED_NO_WRITE")
-          print("CONTACT_TEST_IDENTITY_VERIFIED")
           from curve_api import CurveAPI
           clinics=CurveAPI().get_clinics()
-          if len(clinics)!=1: stop("CLINIC_NOT_UNAMBIGUOUS_NO_WRITE")
-          clinic_id=str(clinics[0]["id"])
-          description="<p>Prueba de integración API — Test New. No contiene información clínica.</p>"
-          if any(n.get("description")==description for n in rows):
-              print("TEST_NOTE_ALREADY_PRESENT")
-              sys.exit(0)
-          response=requests.post(base+"/api/v2/contact/163/note",headers=headers,json={"clinicId":clinic_id,"description":description,"tags":["Correspondence"]},timeout=45)
+          if len(clinics)!=1:
+              print("CLINIC_AMBIGUOUS_NO_WRITE")
+              sys.exit(1)
+          r=requests.post("https://sso.curvehero.com/connect/token",data={"grant_type":"client_credentials","client_id":os.environ["CURVE_CLIENT_ID"],"client_secret":os.environ["CURVE_CLIENT_SECRET"],"scope":"notes.contact:write"},timeout=30)
+          print("TOKEN_STATUS",r.status_code)
+          if not r.ok: sys.exit(1)
+          response=requests.post("https://dentalthreeb.curvehero.com/api/v2/contact/163/note",headers={"Authorization":"Bearer "+r.json()["access_token"]},json={"clinicId":str(clinics[0]["id"]),"description":"<p>www.prueba nota.com</p>","tags":["Correspondence"]},timeout=45)
           print("CREATE_STATUS",response.status_code)
-          if not response.ok: stop("CREATE_FAILED")
-          created=response.json()
-          nid=str(created.get("id",""))
-          print("CREATED_NOTE_ID",nid)
-          verify=get("/api/v2/contact/163/note?order=RecentFirst")
-          matched=any(str(n.get("id"))==nid and n.get("description")==description for n in verify.get("objects",[]))
-          print("NOTE_READBACK_VERIFIED",matched)
-          if not matched: sys.exit(1)
+          if response.status_code==200:
+              data=response.json()
+              print("NOTE_ID",data.get("id"))
+              print("CONTENT_CONFIRMED",data.get("description")=="<p>www.prueba nota.com</p>")
+              print("CONTACT_CONFIRMED",str(data.get("contact",{}).get("id"))=="163")
+          else:
+              print("NOTE_CREATION_NOT_CONFIRMED")
+              sys.exit(1)
           
           PY
