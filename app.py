@@ -12,7 +12,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from curve_api import CurveAPI, _get_secret
+from curve_api import CurveAPI, IncompletePagination, _get_secret
 from whatsapp_funnel import render_whatsapp_funnel
 from zoneinfo import ZoneInfo
 
@@ -218,8 +218,16 @@ try:
     future_appts = load_appointments(future_start, future_end) if has_remaining_days else []
     future_df = appts_to_df(future_appts)
     future_items = load_appointment_items(future_start, future_end) if has_remaining_days else []
+    treatment_plan_notice = None
     try:
         treatment_plans = load_treatment_plans()
+    except IncompletePagination as exc:
+        # A short list would mark the newest patients as having no plan.
+        treatment_plans = []
+        treatment_plan_notice = (
+            "Treatment plan counts are hidden because the full Curve plan list was not loaded. "
+            f"{exc} Use Refresh data to try again."
+        )
     except Exception:
         treatment_plans = []
     # Previous month comparison
@@ -463,7 +471,9 @@ st.caption("Month projection = Collections + scheduled treatments (rest of month
 # 2. Treatment Plans (new patients)
 # ---------------------------------------------------------------------------
 st.subheader("2. Treatment Plans (new patients)")
-if treatment_plans and np_patients:
+if treatment_plan_notice:
+    st.warning(treatment_plan_notice)
+elif treatment_plans and np_patients:
     month_prefix = start_date.strftime("%Y-%m")
     patients_with_plan = set()
     for p in treatment_plans:
