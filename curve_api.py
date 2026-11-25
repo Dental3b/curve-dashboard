@@ -15,12 +15,19 @@ except Exception:
     pass
 
 TOKEN_URL = "https://sso.curvehero.com/connect/token"
+# Pages of 100. A full catalog is only a few dozen requests; this only stops a
+# next link that never ends. Hitting it raises instead of returning a short list.
+_TREATMENT_PLAN_PAGE_LIMIT = 500
 DEFAULT_SCOPES = (
     "appointment:read patient:read clinic:read staff:read schedule:read "
     "appointment_tag:read chargeable_item:read insurance:read "
     "ledger_entry:read accounts_receivable.all:read appointment.items:read "
     "treatment-plan:read"
 )
+
+
+class IncompletePagination(RuntimeError):
+    """A paged Curve read stopped while meta.next still pointed at more data."""
 
 
 def _get_secret(key: str, default: str = "") -> str:
@@ -107,6 +114,33 @@ class CurveAPI:
             )
         resp.raise_for_status()
         return resp.json()
+
+    def _get_url(self, url: str) -> Any:
+        """GET one absolute URL. Renew an invalidated token, or retry a gateway error, once."""
+        resp = requests.get(url, headers=self._headers(), timeout=60)
+        if resp.status_code in (401, 403):
+            self._token = None
+            self._token_expires_at = 0
+            resp = requests.get(url, headers=self._headers(), timeout=60)
+        elif resp.status_code in (502, 503, 504):
+            time.sleep(1)
+            resp = requests.get(url, headers=self._headers(), timeout=60)
+        resp.raise_for_status()
+        return resp.json()
+
+    def _treatment_plan_url(self, next_path: str) -> str:
+        """Resolve meta.next the same way the working pages already do, and stay on this tenant."""
+        if next_path.startswith(("http://", "https://")):
+            url = next_path
+        elif next_path.startswith("/"):
+            url = f"https://{self.instance}.curvehero.com{next_path}"
+        else:
+            url = f"https://{self.instance}.curvehero.com/api/v2/{next_path}"
+        parsed = urlsplit(url)
+        expected = f"{self.instance}.curvehero.com".lower()
+        if parsed.scheme != "https" or (parsed.hostname or "").lower() != expected:
+            raise IncompletePagination("Curve treatment plan pagination: invalid next URL")
+        return url
 
     def get_ledger_entries(self, start_date: str, end_date: str, max_pages: int = 10) -> list[dict]:
         """Fetch ledger entries (production, payments, invoices including $49 fees).
@@ -230,24 +264,43 @@ class CurveAPI:
         # v2 API uses different base
         return objects
 
-    def get_treatment_plans_v2(self, max_pages: int = 15) -> list[dict]:
-        """Fetch treatment plans from v2 API."""
-        objects: list = []
+    def get_treatment_plans_v2(self, max_pages: int | None = None) -> list[dict]:
+        """Fetch every treatment plan from the v2 list.
+
+        The list is about 100 plans per page and comes back oldest first, so a
+        fixed prefix drops the newest plans and recent patients look like they
+        have no plan. Follow meta.next until it is absent.
+
+        max_pages is only a safety stop for a next link that never ends. The
+        default is far above a full catalog. Reaching it raises
+        IncompletePagination instead of returning a short list that callers could
+        treat as complete. No patient or created-date filter is sent: this client
+        has no confirmed query for one, and an unsupported parameter would fail
+        the read.
+        """
+        limit = _TREATMENT_PLAN_PAGE_LIMIT if max_pages is None else max_pages
+        if limit < 1:
+            raise ValueError("max_pages must be at least 1")
         url = f"https://{self.instance}.curvehero.com/api/v2/treatment_plan"
-        page = 0
-        while url and page < max_pages:
-            resp = requests.get(url, headers=self._headers(), timeout=60)
-            resp.raise_for_status()
-            data = resp.json()
-            objects.extend(data.get("objects") or [])
-            next_path = data.get("meta", {}).get("next")
-            if next_path:
-                if next_path.startswith("/"):
-                    url = f"https://{self.instance}.curvehero.com" + next_path
-                else:
-                    url = f"https://{self.instance}.curvehero.com/api/v2/" + next_path
-            else:
-                url = None
-            page += 1
-        return objects
+        objects: list[dict] = []
+        seen: set[str] = set()
+        for _ in range(limit):
+            if url in seen:
+                raise IncompletePagination("Curve treatment plan pagination: repeated next URL")
+            seen.add(url)
+            data = self._get_url(url)
+            if not isinstance(data, dict):
+                raise IncompletePagination("Curve treatment plan pagination: invalid response")
+            page = data.get("objects") or []
+            meta = data.get("meta") or {}
+            if not isinstance(page, list) or not isinstance(meta, dict):
+                raise IncompletePagination("Curve treatment plan pagination: invalid response")
+            objects.extend(page)
+            next_path = meta.get("next")
+            if not next_path:
+                return objects
+            if not isinstance(next_path, str):
+                raise IncompletePagination("Curve treatment plan pagination: invalid next link")
+            url = self._treatment_plan_url(next_path)
+        raise IncompletePagination("Curve treatment plan pagination incomplete")
 
