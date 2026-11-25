@@ -30,6 +30,27 @@ class IncompletePagination(RuntimeError):
     """A paged Curve read stopped while meta.next still pointed at more data."""
 
 
+def _normalize_instance(raw: str, default: str = "dentalthreeb") -> str:
+    """Return the Curve tenant slug.
+
+    Secrets sometimes store a hostname or URL. Request URLs already append
+    .curvehero.com, so a FQDN would produce an invalid host.
+    """
+    value = (raw or "").strip()
+    if "://" in value:
+        value = urlsplit(value).hostname or value
+    value = value.lower().removesuffix(".curvehero.com").strip(".")
+    return value or default
+
+
+def _meta_total(meta: dict) -> int | None:
+    """Integer meta.total when Curve provides one."""
+    try:
+        return int(meta.get("total"))
+    except (TypeError, ValueError):
+        return None
+
+
 def _get_secret(key: str, default: str = "") -> str:
     """Read from Streamlit secrets (cloud) or environment variables (local)."""
     try:
@@ -50,7 +71,9 @@ class CurveAPI:
     ) -> None:
         self.client_id = client_id or _get_secret("CURVE_CLIENT_ID")
         self.client_secret = client_secret or _get_secret("CURVE_CLIENT_SECRET")
-        self.instance = instance or _get_secret("CURVE_INSTANCE", "dentalthreeb")
+        self.instance = _normalize_instance(
+            instance or _get_secret("CURVE_INSTANCE", "dentalthreeb")
+        )
         self.base_url = f"https://api.curvehero.com/v1/{self.instance}"
         self.cheetah_url = f"https://{self.instance}.curvehero.com/cheetah"
         self._token: str | None = None
@@ -298,6 +321,13 @@ class CurveAPI:
             objects.extend(page)
             next_path = meta.get("next")
             if not next_path:
+                # An empty or missing next with a short list used to look like
+                # a complete catalog. Refuse it when Curve also sent a total.
+                total = _meta_total(meta)
+                if total is not None and len(objects) < total:
+                    raise IncompletePagination(
+                        f"Curve treatment plan pagination incomplete: loaded {len(objects)} of {total}"
+                    )
                 return objects
             if not isinstance(next_path, str):
                 raise IncompletePagination("Curve treatment plan pagination: invalid next link")

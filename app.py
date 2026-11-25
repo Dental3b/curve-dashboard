@@ -52,8 +52,9 @@ st.markdown(
 )
 
 
-@st.cache_resource
+@st.cache_resource(ttl=3600)
 def get_api() -> CurveAPI:
+    # v2: do not reuse a CurveAPI instance from before full treatment-plan pagination.
     return CurveAPI()
 
 
@@ -92,6 +93,8 @@ def load_appointment_items(start_str: str, end_str: str):
 
 @st.cache_data(ttl=180)
 def load_treatment_plans():
+    # cache ver 2: follow every Curve page; changing this source invalidates
+    # a 15-page list cached under the previous client.
     return get_api().get_treatment_plans_v2()
 
 
