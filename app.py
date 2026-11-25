@@ -13,6 +13,20 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from curve_api import CurveAPI, IncompletePagination, _get_secret
+from month_projection import (
+    active_appointment_ids,
+    appointment_ids,
+    calendar_month_end,
+    filter_active_scheduled_items,
+    future_treatment_value,
+    item_amount,
+    item_appointment_id,
+    plan_created_date,
+    projected_total,
+    rest_of_month_start,
+    scheduled_new_patient_ids,
+    sum_scheduled,
+)
 from whatsapp_funnel import render_whatsapp_funnel
 from zoneinfo import ZoneInfo
 
@@ -209,16 +223,19 @@ try:
     appts = load_appointments(start_date.isoformat(), end_date.isoformat())
     df = appts_to_df(appts)
     ledger = load_ledger(start_date.isoformat(), end_date.isoformat())
-    # Rest of month scheduled treatments
-    month_end = end_date.replace(day=1) + timedelta(days=32)
-    month_end = month_end.replace(day=1) - timedelta(days=1)
-    future_start = (end_date + timedelta(days=1)).isoformat()
+    # Rest of month still on the book. When the range ends today, include today
+    # so Active / Check In visits are not skipped. Check Out is filtered out
+    # below so ledger production is not counted a second time.
+    month_end = calendar_month_end(end_date)
+    future_start_date = rest_of_month_start(end_date, today)
+    future_start = future_start_date.isoformat()
     future_end = month_end.isoformat()
-    has_remaining_days = end_date < month_end
+    has_remaining_days = future_start_date <= month_end
     future_appts = load_appointments(future_start, future_end) if has_remaining_days else []
     future_df = appts_to_df(future_appts)
     future_items = load_appointment_items(future_start, future_end) if has_remaining_days else []
     treatment_plan_notice = None
+    treatment_plan_error = None
     try:
         treatment_plans = load_treatment_plans()
     except IncompletePagination as exc:
@@ -228,16 +245,19 @@ try:
             "Treatment plan counts are hidden because the full Curve plan list was not loaded. "
             f"{exc} Use Refresh data to try again."
         )
-    except Exception:
+    except Exception as exc:
         treatment_plans = []
+        treatment_plan_error = f"Could not load treatment plans: {exc}"
     # Previous month comparison
     prev_appts = load_appointments(prev_month_start.isoformat(), prev_end_date.isoformat())
     prev_df = appts_to_df(prev_appts)
     prev_ledger = load_ledger(prev_month_start.isoformat(), prev_end_date.isoformat())
-    # Full previous month for closing
-    prev_month_end_full = prev_month_start.replace(day=1) + timedelta(days=32)
-    prev_month_end_full = prev_month_end_full.replace(day=1)
-    prev_full_ledger = load_ledger(prev_month_start.isoformat(), prev_month_end_full.isoformat())
+    # Full previous month. Pass the real last day; load_ledger adds one day
+    # because the Curve ledger endDate is exclusive.
+    prev_full_ledger = load_ledger(
+        prev_month_start.isoformat(),
+        calendar_month_end(prev_month_start).isoformat(),
+    )
 except Exception as e:
     st.error(f"Could not load data from Curve API: {e}")
     st.info("Click Refresh data to renew the Curve connection. If access is still denied, check the app's Curve API permissions and Secrets.")
@@ -312,27 +332,10 @@ if ledger:
 # Patients who paid $49 AND have other invoices > $49
 completed_np = np_patients & np_with_more
 
-# Future scheduled treatment
-future_np_patients = set()
-future_np_value = Decimal(0)
-if not future_df.empty and future_items:
-    future_appt_ids = set(future_df["id"].astype(str))
-    for pid in future_df["patientId"].astype(str).unique():
-        if pid in np_patients:
-            future_np_patients.add(pid)
-    for item in future_items:
-        appt_obj = item.get("appointment") or {}
-        appt_id = str(appt_obj.get("id") or "")
-        if appt_id in future_appt_ids:
-            future_np_value += Decimal(str(item.get("cost") or 0))
-    # Fallback: if no match, show total of all items in range
-if future_items:
-    for item in future_items:
-        future_np_value += Decimal(str(item.get("cost") or 0))
-elif not future_df.empty:
-    for pid in future_df["patientId"].astype(str).unique():
-        if pid in np_patients:
-            future_np_patients.add(pid)
+# Future scheduled treatment. Cancel / Missed / Check Out are not a future visit.
+# Item cost is added once; the old fallback loop added every item on top.
+future_np_patients = scheduled_new_patient_ids(future_appts, np_patients)
+future_np_value = future_treatment_value(future_items, appointment_ids(future_appts))
 
 # Mutually exclusive buckets
 completed_only = completed_np
@@ -351,7 +354,7 @@ prev_np_patients = set()
 prev_np_with_more = set()
 prev_production = Decimal(0)
 prev_payments = Decimal(0)
-prev_full_payments = Decimal(0)
+prev_full_production = Decimal(0)
 if prev_ledger:
     for entry in prev_ledger:
         calc = entry.get("calculations") or {}
@@ -360,7 +363,7 @@ if prev_ledger:
 if prev_full_ledger:
     for entry in prev_full_ledger:
         calc = entry.get("calculations") or {}
-        prev_full_payments += Decimal(str(calc.get("payments") or 0))
+        prev_full_production += Decimal(str(calc.get("production") or 0))
         if entry.get("transactionType") == "Invoice":
             amt = Decimal(str(entry.get("amount") or 0))
             pid = str(entry.get("patientId") or "")
@@ -428,15 +431,18 @@ scorecard = pd.DataFrame({
 })
 st.dataframe(scorecard, use_container_width=True, hide_index=True, height=380)
 
-# Calculate scheduled treatments total early for projection
-scheduled_total = Decimal(0)
-if future_items:
-    for item in future_items:
-        scheduled_total += Decimal(str(item.get("amount") or item.get("cost") or 0))
-month_projection = payments + scheduled_total
+# Scheduled dollars: active line items on Active / Check In appointments only.
+active_appt_ids = active_appointment_ids(future_appts)
+active_items = filter_active_scheduled_items(future_items, active_appt_ids)
+scheduled_total = sum_scheduled(active_items)
+month_projection = projected_total(production, scheduled_total)
 
 st.markdown("---")
 st.subheader("Financials")
+prod_col, sched_col, proj_col = st.columns(3)
+prod_col.metric("Production MTD (done)", f"${production:,.2f}")
+sched_col.metric("Scheduled rest of month (already booked)", f"${scheduled_total:,.2f}")
+proj_col.metric("Month projection (done + scheduled)", f"${month_projection:,.2f}")
 
 fin_scorecard = pd.DataFrame({
     "KPI": [
@@ -445,6 +451,7 @@ fin_scorecard = pd.DataFrame({
         "Production / Day",
         "Production / Patient",
         "Days in range",
+        "Scheduled (rest of month)",
         "Month projection",
     ],
     curr_label: [
@@ -453,7 +460,8 @@ fin_scorecard = pd.DataFrame({
         f"${prod_per_day:,.2f}",
         f"${prod_per_patient:,.2f}",
         str(days_in_range),
-        f"${payments + scheduled_total:,.2f}",
+        f"${scheduled_total:,.2f}",
+        f"${month_projection:,.2f}",
     ],
     prev_label: [
         f"${prev_production:,.2f}",
@@ -461,11 +469,12 @@ fin_scorecard = pd.DataFrame({
         f"${prev_prod_day:,.2f}",
         f"${prev_prod_pat:,.2f}",
         str(prev_days),
-        f"${prev_full_payments:,.2f}",
+        "—",
+        f"${prev_full_production:,.2f}",
     ],
 })
-st.dataframe(fin_scorecard, use_container_width=True, hide_index=True, height=250)
-st.caption("Month projection = Collections + scheduled treatments (rest of month)")
+st.dataframe(fin_scorecard, use_container_width=True, hide_index=True, height=300)
+st.caption("Month projection = Production MTD + scheduled (rest of month)")
 
 # ---------------------------------------------------------------------------
 # 2. Treatment Plans (new patients)
@@ -473,13 +482,15 @@ st.caption("Month projection = Collections + scheduled treatments (rest of month
 st.subheader("2. Treatment Plans (new patients)")
 if treatment_plan_notice:
     st.warning(treatment_plan_notice)
+elif treatment_plan_error:
+    st.error(treatment_plan_error)
 elif treatment_plans and np_patients:
-    month_prefix = start_date.strftime("%Y-%m")
+    # Plans booked in an earlier month still belong to a new patient seen now.
     patients_with_plan = set()
     for p in treatment_plans:
-        pid = str(p.get("patient", {}).get("id") or "")
-        created = str(p.get("createdAt") or "")
-        if pid in np_patients and created.startswith(month_prefix):
+        pid = str((p.get("patient") or {}).get("id") or "")
+        created_date = plan_created_date(p.get("createdAt"))
+        if pid in np_patients and created_date is not None and created_date <= end_date:
             patients_with_plan.add(pid)
     converted = patients_with_plan & (np_with_more | future_np_patients)
     no_activity = patients_with_plan - converted
@@ -544,20 +555,23 @@ else:
 # ---------------------------------------------------------------------------
 st.subheader("4. Scheduled Treatments (rest of month)")
 if has_remaining_days:
-    st.caption(f"Looking from {future_start} to {future_end} · {len(future_appts)} appointments · {len(future_items)} items")
+    st.caption(
+        f"Looking from {future_start} to {future_end} · "
+        f"{len(active_appt_ids)} active appointments · {len(active_items)} active items"
+    )
 else:
     st.caption("No remaining days in the selected month.")
-if future_items:
-    appt_lookup = {str(row["id"]): row for _, row in future_df.iterrows()} if not future_df.empty else {}
+if active_items:
+    appt_lookup = {str(row["id"]).strip(): row for _, row in future_df.iterrows()} if not future_df.empty else {}
     treat_rows = []
     by_prov = {}
     by_code = {}
     patients = set()
     total_treat = Decimal(0)
-    for item in future_items:
-        appt_id = str((item.get("appointment") or {}).get("id") or "")
+    for item in active_items:
+        appt_id = item_appointment_id(item)
         appt = appt_lookup.get(appt_id)
-        cost = Decimal(str(item.get("amount") or item.get("cost") or 0))
+        cost = item_amount(item)
         if cost == 0:
             continue
         total_treat += cost
@@ -605,7 +619,11 @@ if future_items:
     else:
         st.info("No scheduled treatments with cost for the rest of the month.")
 else:
-    st.info("No scheduled treatments remaining in the selected month." if not has_remaining_days else "No future appointment data.")
+    st.info(
+        "No scheduled treatments remaining in the selected month."
+        if not has_remaining_days
+        else "No active scheduled treatments for the rest of the month."
+    )
 
 # ---------------------------------------------------------------------------
 # 5. Accounts Receivable
