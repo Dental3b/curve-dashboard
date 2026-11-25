@@ -3,7 +3,12 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from curve_api import CurveAPI, IncompletePagination, _TREATMENT_PLAN_PAGE_LIMIT
+from curve_api import (
+    CurveAPI,
+    IncompletePagination,
+    _TREATMENT_PLAN_PAGE_LIMIT,
+    _normalize_instance,
+)
 
 
 def response(status, data=None):
@@ -16,10 +21,15 @@ def response(status, data=None):
     return result
 
 
-def page(ids, nxt=None):
+def page(ids, nxt=None, total=None):
     body = {"objects": [{"id": str(item)} for item in ids]}
+    meta = {}
     if nxt is not None:
-        body["meta"] = {"next": nxt}
+        meta["next"] = nxt
+    if total is not None:
+        meta["total"] = total
+    if meta:
+        body["meta"] = meta
     return response(200, body)
 
 
@@ -127,6 +137,52 @@ class TreatmentPlanPaginationTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             api().get_treatment_plans_v2(max_pages=0)
         get.assert_not_called()
+
+    @patch("curve_api.requests.get")
+    def test_short_list_raises_when_total_is_higher(self, get):
+        # A cached or truncated client that stops after 15 pages used to
+        # return 1,500 of 1,568 plans. An empty next plus meta.total must
+        # not be treated as a complete catalog.
+        get.side_effect = [
+            page(["1"], "/api/v2/treatment_plan/page?page=2", total=3),
+            page(["2"], "", total=3),
+        ]
+        with self.assertRaises(IncompletePagination) as caught:
+            api().get_treatment_plans_v2()
+        self.assertIn("loaded 2 of 3", str(caught.exception))
+        self.assertEqual(get.call_count, 2)
+
+    @patch("curve_api.requests.get")
+    def test_empty_next_with_matching_total_is_complete(self, get):
+        get.side_effect = [
+            page(["1"], "/api/v2/treatment_plan/page?page=2", total=2),
+            page(["2"], "", total=2),
+        ]
+        self.assertEqual(api().get_treatment_plans_v2(), [{"id": "1"}, {"id": "2"}])
+
+
+class InstanceNormalizationTest(unittest.TestCase):
+    def test_slug_hostname_and_url_all_become_the_tenant_slug(self):
+        cases = {
+            "dentalthreeb": "dentalthreeb",
+            "dentalthreeb.curvehero.com": "dentalthreeb",
+            "https://dentalthreeb.curvehero.com": "dentalthreeb",
+            "DENTALTHREEB.CURVEHERO.COM": "dentalthreeb",
+            "  dentalthreeb.curvehero.com  ": "dentalthreeb",
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(_normalize_instance(raw), expected)
+
+    def test_api_urls_use_the_normalized_slug(self):
+        client = CurveAPI("id", "secret", "dentalthreeb.curvehero.com")
+        self.assertEqual(client.instance, "dentalthreeb")
+        self.assertEqual(client.base_url, "https://api.curvehero.com/v1/dentalthreeb")
+        self.assertEqual(client.cheetah_url, "https://dentalthreeb.curvehero.com/cheetah")
+        self.assertEqual(
+            client._treatment_plan_url("/api/v2/treatment_plan/page?page=2"),
+            "https://dentalthreeb.curvehero.com/api/v2/treatment_plan/page?page=2",
+        )
 
 
 if __name__ == "__main__":
